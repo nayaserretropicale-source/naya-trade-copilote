@@ -5,44 +5,32 @@ type Bar = { date: string; close: number };
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
   const symbol = (sp.get("symbol") ?? "AAPL").toUpperCase().trim();
-
   const rawShort = Number(sp.get("short"));
   const rawLong = Number(sp.get("long"));
   const shortP = Number.isFinite(rawShort) && rawShort >= 2 ? Math.floor(rawShort) : 20;
   let longP = Number.isFinite(rawLong) && rawLong > shortP ? Math.floor(rawLong) : 50;
   if (longP <= shortP) longP = shortP + 1;
 
+  const key = process.env.TWELVEDATA_API_KEY;
+  if (!key) return NextResponse.json({ error: "Cle Twelve Data manquante" }, { status: 500 });
+
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=2y&interval=1d`;
-    const res = await fetch(url, {
-      cache: "no-store",
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" },
-    });
+    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=520&apikey=${key}`;
+    const res = await fetch(url, { cache: "no-store" });
     const data = await res.json();
 
-    const result = data?.chart?.result?.[0];
-    if (!result || !Array.isArray(result.timestamp)) {
-      const msg = data?.chart?.error?.description || "Symbole introuvable ou donnees indisponibles.";
-      return NextResponse.json({ error: msg }, { status: 404 });
+    if (data.status === "error" || !Array.isArray(data.values)) {
+      return NextResponse.json({ error: data.message || "Symbole introuvable ou donnees indisponibles." }, { status: 404 });
     }
 
-    const timestamps: number[] = result.timestamp;
-    const quote = result.indicators?.quote?.[0];
-    const adj = result.indicators?.adjclose?.[0]?.adjclose;
-    const rawCloses: (number | null)[] = adj || quote?.close || [];
-
-    let bars: Bar[] = [];
-    for (let i = 0; i < timestamps.length; i++) {
-      const c = rawCloses[i];
-      if (typeof c === "number" && Number.isFinite(c)) {
-        bars.push({ date: new Date(timestamps[i] * 1000).toISOString().slice(0, 10), close: c });
-      }
-    }
+    let bars: Bar[] = data.values
+      .map((v: { datetime: string; close: string }) => ({ date: v.datetime, close: parseFloat(v.close) }))
+      .filter((b: Bar) => Number.isFinite(b.close))
+      .reverse();
 
     if (bars.length < longP + 5) {
       return NextResponse.json({ error: "Pas assez de donnees pour ce symbole." }, { status: 400 });
     }
-    if (bars.length > 520) bars = bars.slice(bars.length - 520);
 
     const closes = bars.map((b) => b.close);
     const sma = (i: number, p: number): number | null => {
@@ -78,7 +66,6 @@ export async function GET(req: NextRequest) {
     const stratReturn = ((equity - startCap) / startCap) * 100;
     const holdReturn = ((closes[closes.length - 1] - holdStart) / holdStart) * 100;
     const winRate = trades > 0 ? (wins / trades) * 100 : 0;
-
     const step = Math.max(1, Math.floor(curve.length / 120));
     const slim = curve.filter((_, idx) => idx % step === 0);
 
