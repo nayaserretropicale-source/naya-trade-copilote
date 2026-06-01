@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 type Point = { date: string; strat: number; hold: number };
 type Result = {
@@ -29,6 +29,9 @@ export default function Backtest() {
     } finally { setLoading(false); }
   }
 
+  // Lance un exemple automatiquement a l'ouverture
+  useEffect(() => { run(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
   const W = 600, H = 200;
   let stratPath = "", holdPath = "";
   if (result && result.curve.length > 1) {
@@ -47,11 +50,14 @@ export default function Backtest() {
   return (
     <main className="min-h-screen bg-[#F6F2E9] text-[#1B1E1A] flex justify-center p-6">
       <div className="w-full max-w-xl space-y-4">
-        <div>
-          <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold">Naya · Copilote Marché</p>
-          <h1 className="text-2xl font-semibold mt-1">Backtest — croisement de moyennes</h1>
-          <p className="text-sm text-[#6E7268] mt-2">Teste la stratégie sur ~2 ans d'historique réel, sans risque.</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold">Naya · Copilote Marché</p>
+            <h1 className="text-2xl font-semibold mt-1">Backtest — croisement de moyennes</h1>
+          </div>
+          <a href="/" className="text-xs font-semibold text-[#1F4D3A] bg-white border border-[#E6DFD0] px-3 py-2 rounded-xl hover:bg-[#FCFAF4] transition">← Accueil</a>
         </div>
+        <p className="text-sm text-[#6E7268]">Teste la stratégie sur ~2 ans d'historique réel, sans risque.</p>
 
         <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm space-y-3">
           <div className="grid grid-cols-3 gap-2">
@@ -66,10 +72,12 @@ export default function Backtest() {
             </label>
           </div>
           <button onClick={run} disabled={loading} className="w-full py-3 rounded-xl bg-[#1F4D3A] text-white font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">
-            {loading ? "Calcul en cours…" : "Lancer le backtest"}
+            {loading ? "Calcul en cours…" : "Relancer le backtest"}
           </button>
           {error && <p className="text-[#B0432E] text-sm font-medium">⚠️ {error}</p>}
         </div>
+
+        {loading && !result && <p className="text-[#6E7268] text-sm">Chargement de l'exemple…</p>}
 
         {result && (
           <>
@@ -96,7 +104,7 @@ export default function Backtest() {
             </div>
 
             <p className="text-xs text-[#9A9D92] leading-relaxed">
-              ⚠️ Backtest indicatif : sans frais ni slippage, sur une seule période. Le passé ne garantit pas l'avenir — une stratégie qui bat le marché sur 2 ans peut n'être qu'un coup de chance. C'est un outil d'apprentissage, pas une promesse.
+              ⚠️ Backtest indicatif : sans frais ni slippage, sur une seule période. Le passé ne garantit pas l'avenir. Outil d'apprentissage, pas une promesse.
             </p>
           </>
         )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Portfolio = { id: string; starting_capital: number; cash_balance: number };
 type Settings = { max_per_trade: number; stop_loss_pct: number; require_human_validation: boolean; agents_paused: boolean; usd_to_xof: number };
@@ -29,6 +29,7 @@ export default function Home() {
   const [buying, setBuying] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [generating, setGenerating] = useState(false);
+  const buyRef = useRef<HTMLDivElement>(null);
 
   async function loadPortfolio() {
     const res = await fetch("/api/portfolio");
@@ -66,6 +67,12 @@ export default function Home() {
     if (concentration >= 50) { diversNote = `Attention : ${concentration.toFixed(0)} % de ton portefeuille est sur une seule valeur. Diversifier réduirait nettement le risque.`; diversGood = false; }
     else if (concentration >= 35) { diversNote = `Concentration modérée (${concentration.toFixed(0)} % sur une valeur). Garde un œil dessus.`; }
     else { diversNote = "Bien réparti — pas de concentration excessive. 👍"; diversGood = true; }
+  }
+
+  function selectForBuy(sym: string) {
+    setSymbol(sym);
+    setMessage(null);
+    buyRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
   async function handleBuy() {
@@ -119,14 +126,19 @@ export default function Home() {
           <>
             {market && (
               <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
-                <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-3">Marché aujourd'hui</p>
-                <div className="grid grid-cols-3 gap-2 mb-3">
+                <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-2">Marché aujourd'hui</p>
+                <div className="mb-3">
                   {market.indices.map((idx) => (
-                    <div key={idx.symbol} className="text-center">
-                      <p className="text-xs text-[#6E7268]">{idx.name}</p>
-                      <p className={`text-sm font-semibold mt-1 ${idx.changePct === null ? "text-[#9A9D92]" : idx.changePct >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>
-                        {idx.changePct === null ? "—" : `${idx.changePct >= 0 ? "▲" : "▼"} ${Math.abs(idx.changePct)}%`}
-                      </p>
+                    <div key={idx.symbol} className="flex items-center justify-between py-2 border-t border-[#EFEADD] first:border-t-0">
+                      <div>
+                        <p className="text-sm font-semibold">{idx.name}</p>
+                        <p className={`text-xs font-semibold ${idx.changePct === null ? "text-[#9A9D92]" : idx.changePct >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>
+                          {idx.changePct === null ? "—" : `${idx.changePct >= 0 ? "▲" : "▼"} ${Math.abs(idx.changePct)}% aujourd'hui`}
+                        </p>
+                      </div>
+                      <button onClick={() => selectForBuy(idx.symbol)} className="text-xs font-semibold text-[#1F4D3A] bg-[#EAF1EC] border border-[#D4E2D7] px-3 py-2 rounded-xl hover:brightness-95 transition">
+                        Acheter
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -135,7 +147,7 @@ export default function Home() {
                     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 90 }} preserveAspectRatio="none">
                       <path d={spyPath} fill="none" stroke={spyUp ? "#2F6B4F" : "#B0432E"} strokeWidth="2" />
                     </svg>
-                    <p className="text-xs text-[#9A9D92] mt-1">S&amp;P 500 (SPY) · 90 derniers jours</p>
+                    <p className="text-xs text-[#9A9D92] mt-1">S&amp;P 500 (SPY) · 90 derniers jours · acheter un indice = diversification instantanée</p>
                   </>
                 )}
               </div>
@@ -161,7 +173,7 @@ export default function Home() {
               <button onClick={handleReport} disabled={generating} className="w-full mt-4 py-3 rounded-xl bg-[#1F4D3A] text-white font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{generating ? "L'agent analyse…" : "Générer le rapport du soir"}</button>
             </div>
 
-            <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
+            <div ref={buyRef} className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
               <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-3">Passer un achat (simulation)</p>
               <div className="space-y-2">
                 <input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="Symbole (ex: AAPL)" className="w-full px-4 py-3 rounded-xl border border-[#E6DFD0] outline-none focus:border-[#2F6B4F]" />
