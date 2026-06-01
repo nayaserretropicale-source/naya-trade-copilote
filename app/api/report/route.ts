@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { generateReport } from "@/lib/generateReport";
+import { sendTelegram, formatReport } from "@/lib/sendTelegram";
 
 export async function GET() {
   const { data: portfolio } = await supabaseAdmin
@@ -20,6 +21,7 @@ export async function POST() {
   }
   try {
     const report = await generateReport();
+    await sendTelegram(formatReport(report));
     return NextResponse.json({ ok: true, report });
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
