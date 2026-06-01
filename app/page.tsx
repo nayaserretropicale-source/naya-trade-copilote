@@ -6,13 +6,18 @@ type Portfolio = { id: string; starting_capital: number; cash_balance: number };
 type Settings = { max_per_trade: number; stop_loss_pct: number; require_human_validation: boolean; agents_paused: boolean; usd_to_xof: number };
 type Holding = { symbol: string; quantity: number; avg_price: number };
 type Report = { title: string; summary: string; risk_level: string };
-type Index = { name: string; symbol: string; price: number | null; changePct: number | null };
+type Index = { name: string; symbol: string; risk: string; desc: string; changePct: number | null };
 type Market = { indices: Index[]; chart: { symbol: string; points: { date: string; close: number }[] } };
 
 const RISK_STYLE: Record<string, string> = {
   faible: "text-[#1F4D3A] bg-[#EAF1EC] border-[#D4E2D7]",
   modere: "text-[#A9772A] bg-[#F4ECD8] border-[#E6CFa0]",
   eleve: "text-[#B0432E] bg-[#F6E7E2] border-[#E9C9BF]",
+};
+const RISK_BADGE: Record<string, string> = {
+  "Faible": "text-[#1F4D3A] bg-[#EAF1EC] border-[#D4E2D7]",
+  "Modéré": "text-[#A9772A] bg-[#F4ECD8] border-[#E6CFa0]",
+  "Élevé": "text-[#B0432E] bg-[#F6E7E2] border-[#E9C9BF]",
 };
 
 export default function Home() {
@@ -126,28 +131,35 @@ export default function Home() {
           <>
             {market && (
               <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
-                <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-2">Marché aujourd'hui</p>
-                <div className="mb-3">
-                  {market.indices.map((idx) => (
-                    <div key={idx.symbol} className="flex items-center justify-between py-2 border-t border-[#EFEADD] first:border-t-0">
-                      <div>
-                        <p className="text-sm font-semibold">{idx.name}</p>
-                        <p className={`text-xs font-semibold ${idx.changePct === null ? "text-[#9A9D92]" : idx.changePct >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>
-                          {idx.changePct === null ? "—" : `${idx.changePct >= 0 ? "▲" : "▼"} ${Math.abs(idx.changePct)}% aujourd'hui`}
-                        </p>
+                <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-1">Les marchés aujourd'hui</p>
+                <p className="text-xs text-[#9A9D92] mb-3">Du plus prudent au plus risqué — le badge te dit le niveau de risque.</p>
+                <div>
+                  {market.indices.map((m) => (
+                    <div key={m.symbol} className="py-3 border-t border-[#EFEADD] first:border-t-0">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-semibold">{m.name}</p>
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${RISK_BADGE[m.risk] ?? RISK_BADGE["Modéré"]}`}>Risque {m.risk}</span>
+                          </div>
+                          <p className="text-xs text-[#6E7268] mt-1">{m.desc}</p>
+                        </div>
+                        <div className="text-right flex-none">
+                          <p className={`text-sm font-semibold ${m.changePct === null ? "text-[#9A9D92]" : m.changePct >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>
+                            {m.changePct === null ? "—" : `${m.changePct >= 0 ? "▲" : "▼"} ${Math.abs(m.changePct)}%`}
+                          </p>
+                          <button onClick={() => selectForBuy(m.symbol)} className="mt-2 text-xs font-semibold text-[#1F4D3A] bg-[#EAF1EC] border border-[#D4E2D7] px-3 py-1.5 rounded-xl hover:brightness-95 transition">Acheter</button>
+                        </div>
                       </div>
-                      <button onClick={() => selectForBuy(idx.symbol)} className="text-xs font-semibold text-[#1F4D3A] bg-[#EAF1EC] border border-[#D4E2D7] px-3 py-2 rounded-xl hover:brightness-95 transition">
-                        Acheter
-                      </button>
                     </div>
                   ))}
                 </div>
                 {spyPath && (
                   <>
-                    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 90 }} preserveAspectRatio="none">
+                    <svg viewBox={`0 0 ${W} ${H}`} className="w-full mt-4" style={{ height: 90 }} preserveAspectRatio="none">
                       <path d={spyPath} fill="none" stroke={spyUp ? "#2F6B4F" : "#B0432E"} strokeWidth="2" />
                     </svg>
-                    <p className="text-xs text-[#9A9D92] mt-1">S&amp;P 500 (SPY) · 90 derniers jours · acheter un indice = diversification instantanée</p>
+                    <p className="text-xs text-[#9A9D92] mt-1">S&amp;P 500 · 90 derniers jours</p>
                   </>
                 )}
               </div>

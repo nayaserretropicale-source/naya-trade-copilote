@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server";
 
 const TD = "https://api.twelvedata.com";
-const INDICES = [
-  { name: "S&P 500", symbol: "SPY" },
-  { name: "Nasdaq 100", symbol: "QQQ" },
-  { name: "Dow Jones", symbol: "DIA" },
+
+const MARKETS = [
+  { symbol: "SPY", name: "S&P 500", risk: "Modéré", desc: "Les 500 plus grandes entreprises américaines. Large et diversifié." },
+  { symbol: "DIA", name: "Dow Jones", risk: "Modéré", desc: "30 grandes entreprises américaines bien établies." },
+  { symbol: "QQQ", name: "Nasdaq 100", risk: "Élevé", desc: "100 valeurs technologiques US. Plus de potentiel, plus de secousses." },
+  { symbol: "IWM", name: "Petites caps US", risk: "Élevé", desc: "Petites entreprises américaines : plus volatiles." },
+  { symbol: "EFA", name: "Actions internationales", risk: "Modéré", desc: "Grandes entreprises hors USA (Europe, Asie développée)." },
+  { symbol: "EEM", name: "Marchés émergents", risk: "Élevé", desc: "Pays en développement : fort potentiel, fort risque." },
+  { symbol: "BND", name: "Obligations US", risk: "Faible", desc: "Prêts aux États et entreprises. Peu de rendement, mais le coussin de sécurité." },
+  { symbol: "GLD", name: "Or", risk: "Modéré", desc: "Valeur refuge : souvent en hausse quand les actions chutent." },
 ];
 
 export async function GET() {
@@ -12,19 +18,14 @@ export async function GET() {
   if (!key) return NextResponse.json({ error: "Cle Twelve Data manquante" }, { status: 500 });
 
   try {
-    const symbols = INDICES.map((i) => i.symbol).join(",");
+    const symbols = MARKETS.map((m) => m.symbol).join(",");
     const qRes = await fetch(`${TD}/quote?symbol=${symbols}&apikey=${key}`, { cache: "no-store" });
     const qData = await qRes.json();
 
-    const indices = INDICES.map((i) => {
-      const d = qData[i.symbol] ?? (qData.symbol === i.symbol ? qData : null);
-      const price = d ? parseFloat(d.close) : NaN;
+    const indices = MARKETS.map((m) => {
+      const d = qData[m.symbol] ?? (qData.symbol === m.symbol ? qData : null);
       const pct = d ? parseFloat(d.percent_change) : NaN;
-      return {
-        name: i.name, symbol: i.symbol,
-        price: Number.isFinite(price) ? price : null,
-        changePct: Number.isFinite(pct) ? Number(pct.toFixed(2)) : null,
-      };
+      return { ...m, changePct: Number.isFinite(pct) ? Number(pct.toFixed(2)) : null };
     });
 
     const cRes = await fetch(`${TD}/time_series?symbol=SPY&interval=1day&outputsize=90&apikey=${key}`, { cache: "no-store" });
