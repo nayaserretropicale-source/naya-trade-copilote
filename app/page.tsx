@@ -41,6 +41,7 @@ export default function Home() {
   const [weekly, setWeekly] = useState<Weekly>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const [symbol, setSymbol] = useState("SPY");
   const [amount, setAmount] = useState("15000");
@@ -56,6 +57,7 @@ export default function Home() {
   const [sendingRecap, setSendingRecap] = useState(false);
   const [recapNote, setRecapNote] = useState<string | null>(null);
   const buyRef = useRef<HTMLDivElement>(null);
+  const refreshingRef = useRef(false);
 
   async function loadPortfolio() {
     const res = await fetch("/api/portfolio");
@@ -71,12 +73,31 @@ export default function Home() {
   async function loadSnapshots() { try { const res = await fetch("/api/snapshots", { method: "POST" }); const data = await res.json(); if (data.series) setSnaps(data.series); } catch {} }
   async function loadWeekly() { try { const res = await fetch("/api/weekly"); const data = await res.json(); setWeekly(data.review ?? null); } catch {} }
 
+  // Rafraichissement des donnees vivantes (valeur, positions, marche, historique)
+  async function refreshLive() {
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
+    try {
+      await Promise.all([loadPortfolio(), loadPositions(), loadMarket(), loadHistory()]);
+      setLastUpdated(new Date());
+    } catch {} finally { refreshingRef.current = false; }
+  }
+
   useEffect(() => {
     (async () => {
-      try { await loadPortfolio(); await loadPositions(); await loadReport(); await loadMarket(); await loadSuggestions(); await loadHistory(); await loadSnapshots(); await loadWeekly(); }
+      try { await loadPortfolio(); await loadPositions(); await loadReport(); await loadMarket(); await loadSuggestions(); await loadHistory(); await loadSnapshots(); await loadWeekly(); setLastUpdated(new Date()); }
       catch (e) { setError(e instanceof Error ? e.message : "Erreur"); }
       finally { setLoading(false); }
     })();
+  }, []);
+
+  // Auto-actualisation : toutes les 60 s + a chaque retour sur l'app
+  useEffect(() => {
+    const id = setInterval(() => { refreshLive(); }, 60000);
+    const onVisible = () => { if (document.visibilityState === "visible") refreshLive(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVisible); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const rate = settings?.usd_to_xof ?? 600;
@@ -84,6 +105,7 @@ export default function Home() {
   const signFcfa = (usd: number) => (usd >= 0 ? "+" : "−") + Math.round(Math.abs(usd) * rate).toLocaleString("fr-FR") + " FCFA";
   const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
   const fmtDateTime = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const fmtTime = (d: Date) => d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 
   const cash = portfolio?.cash_balance ?? 0;
   const holdingsValue = positions.reduce((s, p) => s + p.currentValueUsd, 0);
@@ -105,7 +127,7 @@ export default function Home() {
   }
 
   function selectForBuy(sym: string) { setSymbol(sym); setMessage(null); buyRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }
-  async function reloadAll() { await loadPortfolio(); await loadPositions(); await loadHistory(); await loadSnapshots(); }
+  async function reloadAll() { await loadPortfolio(); await loadPositions(); await loadHistory(); await loadSnapshots(); setLastUpdated(new Date()); }
 
   async function handleBuy() {
     setBuying(true); setMessage(null);
@@ -205,6 +227,7 @@ export default function Home() {
           <div>
             <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold">Naya · Copilote Marché</p>
             <h1 className="text-2xl font-semibold mt-1">Tableau de bord</h1>
+            {lastUpdated && <p className="text-xs text-[#9A9D92] mt-1">🟢 Mis à jour à {fmtTime(lastUpdated)} · auto chaque minute</p>}
           </div>
           <a href="/backtest" className="text-xs font-semibold text-[#1F4D3A] bg-white border border-[#E6DFD0] px-3 py-2 rounded-xl hover:bg-[#FCFAF4] transition">📊 Backtest</a>
         </div>
@@ -300,7 +323,6 @@ export default function Home() {
               <button onClick={handleReport} disabled={generating} className="w-full mt-4 py-3 rounded-xl bg-[#1F4D3A] text-white font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{generating ? "L'agent analyse…" : "Générer le rapport du soir"}</button>
             </div>
 
-            {/* Bilan de la semaine */}
             <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
               <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-3">Bilan de la semaine</p>
               {weekly ? (
