@@ -13,6 +13,7 @@ type Op = { date: string; symbol: string; side: string; quantity: number; price:
 type Day = { date: string; realizedPl: number; buys: number; sells: number };
 type History = { operations: Op[]; daily: Day[]; totalRealizedPl: number };
 type Snap = { date: string; value: number };
+type Weekly = { summary: string; week_end: string } | null;
 
 const RISK_STYLE: Record<string, string> = {
   faible: "text-[#1F4D3A] bg-[#EAF1EC] border-[#D4E2D7]",
@@ -37,6 +38,7 @@ export default function Home() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [history, setHistory] = useState<History | null>(null);
   const [snaps, setSnaps] = useState<Snap[]>([]);
+  const [weekly, setWeekly] = useState<Weekly>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,6 +47,8 @@ export default function Home() {
   const [buying, setBuying] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [generatingWeekly, setGeneratingWeekly] = useState(false);
+  const [weeklyNote, setWeeklyNote] = useState<string | null>(null);
   const [askingSug, setAskingSug] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [confirmSell, setConfirmSell] = useState<string | null>(null);
@@ -65,10 +69,11 @@ export default function Home() {
   async function loadSuggestions() { try { const res = await fetch("/api/suggestions"); const data = await res.json(); setSuggestions(data.suggestions ?? []); } catch {} }
   async function loadHistory() { try { const res = await fetch("/api/history"); const data = await res.json(); setHistory(data); } catch {} }
   async function loadSnapshots() { try { const res = await fetch("/api/snapshots", { method: "POST" }); const data = await res.json(); if (data.series) setSnaps(data.series); } catch {} }
+  async function loadWeekly() { try { const res = await fetch("/api/weekly"); const data = await res.json(); setWeekly(data.review ?? null); } catch {} }
 
   useEffect(() => {
     (async () => {
-      try { await loadPortfolio(); await loadPositions(); await loadReport(); await loadMarket(); await loadSuggestions(); await loadHistory(); await loadSnapshots(); }
+      try { await loadPortfolio(); await loadPositions(); await loadReport(); await loadMarket(); await loadSuggestions(); await loadHistory(); await loadSnapshots(); await loadWeekly(); }
       catch (e) { setError(e instanceof Error ? e.message : "Erreur"); }
       finally { setLoading(false); }
     })();
@@ -133,6 +138,16 @@ export default function Home() {
     catch (e) { setReport({ title: "Erreur", summary: e instanceof Error ? e.message : "Erreur", risk_level: "faible" }); }
     finally { setGenerating(false); }
   }
+  async function handleWeekly() {
+    setGeneratingWeekly(true); setWeeklyNote(null);
+    try {
+      const res = await fetch("/api/weekly", { method: "POST" });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setWeekly(data.review ?? null);
+    } catch (e) { setWeeklyNote(e instanceof Error ? e.message : "Erreur"); }
+    finally { setGeneratingWeekly(false); }
+  }
   async function askSuggestions() {
     setAskingSug(true);
     try { const res = await fetch("/api/suggestions", { method: "POST" }); const data = await res.json(); if (data.error) throw new Error(data.error); setSuggestions(data.suggestions ?? []); }
@@ -170,7 +185,6 @@ export default function Home() {
     spyUp = pts[pts.length - 1].close >= pts[0].close;
   }
 
-  // Courbe de la valeur du portefeuille
   const CW = 600, CH = 120;
   let valuePath = ""; let valueUp = true; let baseY = 0;
   if (snaps.length > 1) {
@@ -284,6 +298,21 @@ export default function Home() {
               </div>
               {report ? (<><h2 className="text-lg font-semibold">{report.title}</h2><p className="text-sm text-[#33372F] mt-2 leading-relaxed">{report.summary}</p></>) : (<p className="text-sm text-[#6E7268]">Aucun rapport encore.</p>)}
               <button onClick={handleReport} disabled={generating} className="w-full mt-4 py-3 rounded-xl bg-[#1F4D3A] text-white font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{generating ? "L'agent analyse…" : "Générer le rapport du soir"}</button>
+            </div>
+
+            {/* Bilan de la semaine */}
+            <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
+              <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-3">Bilan de la semaine</p>
+              {weekly ? (
+                <>
+                  <p className="text-sm text-[#33372F] leading-relaxed whitespace-pre-line">{weekly.summary}</p>
+                  <p className="text-xs text-[#9A9D92] mt-2">Établi le {fmtDate(weekly.week_end)}</p>
+                </>
+              ) : (
+                <p className="text-sm text-[#6E7268]">Pas encore de bilan. Génère-le quand tu veux — il arrivera aussi tout seul chaque dimanche soir sur Telegram.</p>
+              )}
+              <button onClick={handleWeekly} disabled={generatingWeekly} className="w-full mt-4 py-3 rounded-xl bg-[#1F4D3A] text-white font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{generatingWeekly ? "Le coach analyse ta semaine…" : "Générer mon bilan de la semaine"}</button>
+              {weeklyNote && <p className="text-sm font-medium text-[#B0432E] mt-2">{weeklyNote}</p>}
             </div>
 
             <div ref={buyRef} className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
