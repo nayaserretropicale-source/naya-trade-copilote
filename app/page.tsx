@@ -9,6 +9,9 @@ type Report = { title: string; summary: string; risk_level: string };
 type MarketItem = { symbol: string; name: string; tier: string; explain: string; changePct: number | null };
 type Market = { markets: MarketItem[]; chart: { symbol: string; points: { date: string; close: number }[] } };
 type Suggestion = { id: string; symbol: string; name: string | null; action: string; amount: number | null; reason: string; confidence: string };
+type Op = { date: string; symbol: string; side: string; quantity: number; price: number; total: number; realizedPl: number | null };
+type Day = { date: string; realizedPl: number; buys: number; sells: number };
+type History = { operations: Op[]; daily: Day[]; totalRealizedPl: number };
 
 const RISK_STYLE: Record<string, string> = {
   faible: "text-[#1F4D3A] bg-[#EAF1EC] border-[#D4E2D7]",
@@ -30,6 +33,7 @@ export default function Home() {
   const [report, setReport] = useState<Report | null>(null);
   const [market, setMarket] = useState<Market | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [history, setHistory] = useState<History | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,10 +58,11 @@ export default function Home() {
   async function loadReport() { const res = await fetch("/api/report"); const data = await res.json(); if (data.report) setReport(data.report); }
   async function loadMarket() { try { const res = await fetch("/api/market"); const data = await res.json(); if (!data.error) setMarket(data); } catch {} }
   async function loadSuggestions() { try { const res = await fetch("/api/suggestions"); const data = await res.json(); setSuggestions(data.suggestions ?? []); } catch {} }
+  async function loadHistory() { try { const res = await fetch("/api/history"); const data = await res.json(); setHistory(data); } catch {} }
 
   useEffect(() => {
     (async () => {
-      try { await loadPortfolio(); await loadPositions(); await loadReport(); await loadMarket(); await loadSuggestions(); }
+      try { await loadPortfolio(); await loadPositions(); await loadReport(); await loadMarket(); await loadSuggestions(); await loadHistory(); }
       catch (e) { setError(e instanceof Error ? e.message : "Erreur"); }
       finally { setLoading(false); }
     })();
@@ -66,6 +71,8 @@ export default function Home() {
   const rate = settings?.usd_to_xof ?? 600;
   const fcfa = (usd: number) => Math.round(usd * rate).toLocaleString("fr-FR") + " FCFA";
   const signFcfa = (usd: number) => (usd >= 0 ? "+" : "−") + Math.round(Math.abs(usd) * rate).toLocaleString("fr-FR") + " FCFA";
+  const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+  const fmtDateTime = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
   const cash = portfolio?.cash_balance ?? 0;
   const holdingsValue = positions.reduce((s, p) => s + p.currentValueUsd, 0);
@@ -84,8 +91,7 @@ export default function Home() {
   }
 
   function selectForBuy(sym: string) { setSymbol(sym); setMessage(null); buyRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }
-
-  async function reloadAll() { await loadPortfolio(); await loadPositions(); }
+  async function reloadAll() { await loadPortfolio(); await loadPositions(); await loadHistory(); }
 
   async function handleBuy() {
     setBuying(true); setMessage(null);
@@ -160,7 +166,6 @@ export default function Home() {
 
         {portfolio && settings && !loading && (
           <>
-            {/* Portefeuille + gains/pertes */}
             <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
               <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold">Portefeuille (simulation)</p>
               <p className="text-3xl font-semibold mt-3">{fcfa(totalValue)}</p>
@@ -170,7 +175,6 @@ export default function Home() {
               <p className="text-xs text-[#6E7268] mt-1">Liquidités : {fcfa(cash)} · investi : {fcfa(holdingsValue)} · départ : {fcfa(starting)}</p>
             </div>
 
-            {/* Marché par risque */}
             {market && (
               <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
                 <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-2">Marché — par niveau de risque</p>
@@ -192,13 +196,11 @@ export default function Home() {
               </div>
             )}
 
-            {/* Diversification */}
             <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
               <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-2">Diversification &amp; risque</p>
               <p className={`text-sm font-medium ${diversGood === false ? "text-[#B0432E]" : diversGood === true ? "text-[#2F6B4F]" : "text-[#6E7268]"}`}>{diversNote}</p>
             </div>
 
-            {/* Suggestions IA */}
             <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
               <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-3">Suggestions de l'IA</p>
               {suggestions.length === 0 ? (
@@ -225,7 +227,6 @@ export default function Home() {
               <button onClick={askSuggestions} disabled={askingSug} className="w-full mt-3 py-3 rounded-xl bg-[#1F4D3A] text-white font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{askingSug ? "L'IA analyse ta situation…" : "Demander des suggestions à l'IA"}</button>
             </div>
 
-            {/* Rapport */}
             <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold">Le rapport du soir</p>
@@ -235,7 +236,6 @@ export default function Home() {
               <button onClick={handleReport} disabled={generating} className="w-full mt-4 py-3 rounded-xl bg-[#1F4D3A] text-white font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{generating ? "L'agent analyse…" : "Générer le rapport du soir"}</button>
             </div>
 
-            {/* Achat */}
             <div ref={buyRef} className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
               <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-3">Passer un achat (simulation)</p>
               <div className="space-y-2">
@@ -246,7 +246,6 @@ export default function Home() {
               {message && (<p className={`mt-3 text-sm font-medium ${message.type === "ok" ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{message.type === "ok" ? "✓ " : "⚠️ "}{message.text}</p>)}
             </div>
 
-            {/* Positions avec gains/pertes + vente */}
             <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
               <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-3">Mes positions</p>
               {positions.length === 0 ? (<p className="text-sm text-[#6E7268]">Aucune position pour l'instant.</p>) : (
@@ -254,10 +253,7 @@ export default function Home() {
                   {positions.map((p) => (
                     <div key={p.symbol} className="py-2 border-t border-[#EFEADD] first:border-t-0">
                       <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-semibold text-sm">{p.symbol}</p>
-                          <p className="text-xs text-[#6E7268]">{p.quantity.toFixed(4)} parts · {fcfa(p.currentValueUsd)}</p>
-                        </div>
+                        <div><p className="font-semibold text-sm">{p.symbol}</p><p className="text-xs text-[#6E7268]">{p.quantity.toFixed(4)} parts · {fcfa(p.currentValueUsd)}</p></div>
                         <div className="text-right">
                           <p className={`text-sm font-semibold ${p.plUsd >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{p.plUsd >= 0 ? "▲" : "▼"} {p.plPct >= 0 ? "+" : ""}{p.plPct}%</p>
                           <p className={`text-xs ${p.plUsd >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{signFcfa(p.plUsd)}</p>
@@ -276,6 +272,51 @@ export default function Home() {
                 </div>
               )}
             </div>
+
+            {/* Historique & gains */}
+            {history && (
+              <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
+                <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-2">Historique &amp; gains</p>
+                <p className="text-sm">Gains réalisés (verrouillés par tes ventes) :{" "}
+                  <span className={`font-semibold ${history.totalRealizedPl >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{signFcfa(history.totalRealizedPl)}</span>
+                </p>
+                <p className="text-xs text-[#9A9D92] mt-1">Un gain se « verrouille » à la vente. Avant ça, il est latent (visible dans tes positions).</p>
+
+                {history.daily.length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-xs font-semibold text-[#6E7268] mb-1">Par journée</p>
+                    {history.daily.slice(0, 10).map((d) => (
+                      <div key={d.date} className="flex items-center justify-between py-2 border-b border-[#F3EFE4] last:border-b-0 text-sm">
+                        <span>{fmtDate(d.date)}</span>
+                        <span className="text-xs text-[#9A9D92]">{d.buys} achat{d.buys > 1 ? "s" : ""} · {d.sells} vente{d.sells > 1 ? "s" : ""}</span>
+                        <span className={`font-semibold ${d.sells === 0 ? "text-[#9A9D92]" : d.realizedPl >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{d.sells === 0 ? "—" : signFcfa(d.realizedPl)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="mt-4">
+                  <p className="text-xs font-semibold text-[#6E7268] mb-1">Par opération</p>
+                  {history.operations.length === 0 ? (
+                    <p className="text-sm text-[#6E7268]">Aucune opération encore.</p>
+                  ) : (
+                    history.operations.slice(0, 15).map((o, i) => (
+                      <div key={i} className="flex items-center justify-between py-2 border-b border-[#F3EFE4] last:border-b-0">
+                        <div>
+                          <p className="text-sm font-semibold">{o.side === "buy" ? "Achat" : "Vente"} {o.symbol}</p>
+                          <p className="text-xs text-[#9A9D92]">{fmtDateTime(o.date)}</p>
+                        </div>
+                        {o.side === "sell" && o.realizedPl !== null ? (
+                          <span className={`text-sm font-semibold ${o.realizedPl >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{o.realizedPl >= 0 ? "gain " : "perte "}{signFcfa(o.realizedPl)}</span>
+                        ) : (
+                          <span className="text-sm text-[#6E7268]">{fcfa(o.total)}</span>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
