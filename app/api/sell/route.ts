@@ -3,8 +3,10 @@ import { supabaseAdmin } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
   try {
-    const { symbol } = await req.json();
-    const sym = String(symbol ?? "").toUpperCase().trim();
+    const body = await req.json();
+    const sym = String(body.symbol ?? "").toUpperCase().trim();
+    let fraction = Number(body.fraction);
+    if (!Number.isFinite(fraction) || fraction <= 0 || fraction > 1) fraction = 1;
     if (!sym) return NextResponse.json({ error: "Symbole invalide" }, { status: 400 });
 
     const { data: portfolio } = await supabaseAdmin.from("portfolios").select("*").limit(1).single();
@@ -20,19 +22,26 @@ export async function POST(req: NextRequest) {
     const price = quote.c;
     if (!price) return NextResponse.json({ error: "Prix indisponible" }, { status: 404 });
 
-    const quantity = Number(holding.quantity);
-    const proceeds = quantity * price;
-    const realizedPl = (price - holding.avg_price) * quantity;
+    const sellQty = holding.quantity * fraction;
+    const remaining = holding.quantity - sellQty;
+    const proceeds = sellQty * price;
+    const realizedPl = (price - holding.avg_price) * sellQty;
 
     await supabaseAdmin.from("transactions").insert({
       portfolio_id: portfolio.id, symbol: sym, side: "sell",
-      quantity, price, total: proceeds, source: "manual",
+      quantity: sellQty, price, total: proceeds, source: "manual",
     });
-    await supabaseAdmin.from("holdings").delete().eq("id", holding.id);
+
+    if (remaining <= 0.000001) {
+      await supabaseAdmin.from("holdings").delete().eq("id", holding.id);
+    } else {
+      await supabaseAdmin.from("holdings").update({ quantity: remaining, updated_at: new Date().toISOString() }).eq("id", holding.id);
+    }
+
     const newCash = portfolio.cash_balance + proceeds;
     await supabaseAdmin.from("portfolios").update({ cash_balance: newCash }).eq("id", portfolio.id);
 
-    return NextResponse.json({ ok: true, symbol: sym, price, proceeds, realizedPl, newCash });
+    return NextResponse.json({ ok: true, symbol: sym, price, proceeds, realizedPl, soldQty: sellQty, remaining, newCash, partial: fraction < 1 });
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: detail }, { status: 500 });

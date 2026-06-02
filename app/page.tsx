@@ -25,6 +25,7 @@ const TIER_STYLE: Record<string, string> = {
 };
 const TIERS = ["Prudent", "Équilibré", "Dynamique"];
 const CONF: Record<string, string> = { faible: "faible", moderee: "modérée", elevee: "élevée" };
+const QUICK_AMOUNTS = ["5000", "15000", "30000"];
 
 export default function Home() {
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
@@ -109,14 +110,15 @@ export default function Home() {
     } catch (e) { setMessage({ type: "err", text: e instanceof Error ? e.message : "Erreur" }); }
     finally { setBuying(false); }
   }
-  async function doSell(sym: string) {
+  async function doSell(sym: string, fraction: number) {
     setSelling(true); setMessage(null);
     try {
-      const res = await fetch("/api/sell", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: sym }) });
+      const res = await fetch("/api/sell", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: sym, fraction }) });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       const word = data.realizedPl >= 0 ? "gain" : "perte";
-      setMessage({ type: "ok", text: `Vendu ${data.symbol} à ${data.price.toFixed(2)} $ · ${word} de ${fcfa(Math.abs(data.realizedPl))}` });
+      const scope = data.partial ? "50 % de " : "";
+      setMessage({ type: "ok", text: `Vendu ${scope}${data.symbol} à ${data.price.toFixed(2)} $ · ${word} de ${fcfa(Math.abs(data.realizedPl))}` });
       setConfirmSell(null);
       await reloadAll();
     } catch (e) { setMessage({ type: "err", text: e instanceof Error ? e.message : "Erreur" }); }
@@ -253,6 +255,11 @@ export default function Home() {
               <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-3">Passer un achat (simulation)</p>
               <div className="space-y-2">
                 <input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="Symbole (ex: SPY)" className="w-full px-4 py-3 rounded-xl border border-[#E6DFD0] outline-none focus:border-[#2F6B4F]" />
+                <div className="flex gap-2">
+                  {QUICK_AMOUNTS.map((a) => (
+                    <button key={a} onClick={() => setAmount(a)} className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition ${amount === a ? "bg-[#1F4D3A] text-white border-[#1F4D3A]" : "bg-white border-[#E6DFD0] hover:bg-[#FCFAF4]"}`}>{Number(a).toLocaleString("fr-FR")} F</button>
+                  ))}
+                </div>
                 <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="numeric" placeholder="Montant en FCFA" className="w-full px-4 py-3 rounded-xl border border-[#E6DFD0] outline-none focus:border-[#2F6B4F]" />
                 <button onClick={handleBuy} disabled={buying} className="w-full py-3 rounded-xl bg-[#1F4D3A] text-white font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{buying ? "Achat en cours…" : "Acheter (simulation)"}</button>
               </div>
@@ -274,8 +281,9 @@ export default function Home() {
                       </div>
                       {confirmSell === p.symbol ? (
                         <div className="flex gap-2 mt-2">
-                          <button onClick={() => doSell(p.symbol)} disabled={selling} className="flex-1 py-2 rounded-xl bg-[#B0432E] text-white text-sm font-semibold hover:brightness-95 transition disabled:opacity-50">{selling ? "Vente…" : "Oui, vendre tout"}</button>
-                          <button onClick={() => setConfirmSell(null)} disabled={selling} className="flex-1 py-2 rounded-xl bg-white border border-[#E6DFD0] text-sm font-semibold hover:bg-[#FCFAF4] transition">Annuler</button>
+                          <button onClick={() => doSell(p.symbol, 0.5)} disabled={selling} className="flex-1 py-2 rounded-xl bg-[#A9772A] text-white text-sm font-semibold hover:brightness-95 transition disabled:opacity-50">{selling ? "…" : "Vendre 50 %"}</button>
+                          <button onClick={() => doSell(p.symbol, 1)} disabled={selling} className="flex-1 py-2 rounded-xl bg-[#B0432E] text-white text-sm font-semibold hover:brightness-95 transition disabled:opacity-50">{selling ? "…" : "Vendre tout"}</button>
+                          <button onClick={() => setConfirmSell(null)} disabled={selling} className="flex-none py-2 px-3 rounded-xl bg-white border border-[#E6DFD0] text-sm font-semibold hover:bg-[#FCFAF4] transition">Annuler</button>
                         </div>
                       ) : (
                         <button onClick={() => { setConfirmSell(p.symbol); setMessage(null); }} className="w-full mt-2 py-2 rounded-xl bg-white border border-[#E6DFD0] text-sm font-semibold hover:bg-[#FCFAF4] transition">Vendre</button>
@@ -289,18 +297,13 @@ export default function Home() {
             {history && (
               <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
                 <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-2">Historique &amp; gains</p>
-
                 <div className="rounded-xl bg-[#F6F2E9] border border-[#EFEADD] p-3 mb-3">
                   <p className="text-xs text-[#6E7268]">Aujourd'hui</p>
-                  <p className={`text-lg font-semibold ${!todayDay || todayDay.sells === 0 ? "text-[#6E7268]" : todayDay.realizedPl >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>
-                    {!todayDay || todayDay.sells === 0 ? "Aucune vente aujourd'hui" : `${todayDay.realizedPl >= 0 ? "▲" : "▼"} ${signFcfa(todayDay.realizedPl)}`}
-                  </p>
+                  <p className={`text-lg font-semibold ${!todayDay || todayDay.sells === 0 ? "text-[#6E7268]" : todayDay.realizedPl >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{!todayDay || todayDay.sells === 0 ? "Aucune vente aujourd'hui" : `${todayDay.realizedPl >= 0 ? "▲" : "▼"} ${signFcfa(todayDay.realizedPl)}`}</p>
                   {todayDay && <p className="text-xs text-[#9A9D92] mt-0.5">{todayDay.buys} achat(s) · {todayDay.sells} vente(s) aujourd'hui</p>}
                 </div>
-
                 <p className="text-sm">Gains réalisés au total :{" "}<span className={`font-semibold ${history.totalRealizedPl >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{signFcfa(history.totalRealizedPl)}</span></p>
                 <p className="text-xs text-[#9A9D92] mt-1">Un gain se « verrouille » à la vente. Avant ça, il est latent (visible dans tes positions).</p>
-
                 {history.daily.length > 0 && (
                   <div className="mt-4">
                     <p className="text-xs font-semibold text-[#6E7268] mb-1">Par journée</p>
@@ -313,26 +316,17 @@ export default function Home() {
                     ))}
                   </div>
                 )}
-
                 <div className="mt-4">
                   <p className="text-xs font-semibold text-[#6E7268] mb-1">Par opération</p>
-                  {history.operations.length === 0 ? (
-                    <p className="text-sm text-[#6E7268]">Aucune opération encore.</p>
-                  ) : (
+                  {history.operations.length === 0 ? (<p className="text-sm text-[#6E7268]">Aucune opération encore.</p>) : (
                     history.operations.slice(0, 15).map((o, i) => (
                       <div key={i} className="flex items-center justify-between py-2 border-b border-[#F3EFE4] last:border-b-0">
-                        <div>
-                          <p className="text-sm font-semibold">{o.side === "buy" ? "Achat" : "Vente"} {o.symbol}</p>
-                          <p className="text-xs text-[#9A9D92]">{fmtDateTime(o.date)}</p>
-                        </div>
-                        {o.side === "sell" && o.realizedPl !== null ? (
-                          <span className={`text-sm font-semibold ${o.realizedPl >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{o.realizedPl >= 0 ? "gain " : "perte "}{signFcfa(o.realizedPl)}</span>
-                        ) : (<span className="text-sm text-[#6E7268]">{fcfa(o.total)}</span>)}
+                        <div><p className="text-sm font-semibold">{o.side === "buy" ? "Achat" : "Vente"} {o.symbol}</p><p className="text-xs text-[#9A9D92]">{fmtDateTime(o.date)}</p></div>
+                        {o.side === "sell" && o.realizedPl !== null ? (<span className={`text-sm font-semibold ${o.realizedPl >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{o.realizedPl >= 0 ? "gain " : "perte "}{signFcfa(o.realizedPl)}</span>) : (<span className="text-sm text-[#6E7268]">{fcfa(o.total)}</span>)}
                       </div>
                     ))
                   )}
                 </div>
-
                 <button onClick={sendRecap} disabled={sendingRecap} className="w-full mt-4 py-3 rounded-xl bg-[#1F4D3A] text-white font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{sendingRecap ? "Envoi…" : "📲 Envoyer le récap sur Telegram"}</button>
                 {recapNote && <p className="text-sm font-medium text-[#2F6B4F] mt-2">{recapNote}</p>}
               </div>
