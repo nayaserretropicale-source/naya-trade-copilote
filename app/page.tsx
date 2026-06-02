@@ -46,6 +46,8 @@ export default function Home() {
   const [resolving, setResolving] = useState(false);
   const [confirmSell, setConfirmSell] = useState<string | null>(null);
   const [selling, setSelling] = useState(false);
+  const [sendingRecap, setSendingRecap] = useState(false);
+  const [recapNote, setRecapNote] = useState<string | null>(null);
   const buyRef = useRef<HTMLDivElement>(null);
 
   async function loadPortfolio() {
@@ -80,6 +82,9 @@ export default function Home() {
   const starting = portfolio?.starting_capital ?? 0;
   const overallPl = totalValue - starting;
   const overallPlPct = starting > 0 ? (overallPl / starting) * 100 : 0;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const todayDay = history?.daily.find((d) => d.date === today) ?? null;
 
   const concentration = positions.length && totalValue > 0 ? Math.max(...positions.map((p) => p.currentValueUsd / totalValue * 100)) : 0;
   let diversNote = "Aucune position pour l'instant — rien à risquer.";
@@ -139,6 +144,16 @@ export default function Home() {
     } catch (e) { setError(e instanceof Error ? e.message : "Erreur"); }
     finally { setResolving(false); }
   }
+  async function sendRecap() {
+    setSendingRecap(true); setRecapNote(null);
+    try {
+      const res = await fetch("/api/recap", { method: "POST" });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setRecapNote("Récap envoyé sur Telegram ✓");
+    } catch (e) { setRecapNote(e instanceof Error ? e.message : "Erreur"); }
+    finally { setSendingRecap(false); }
+  }
 
   const W = 600, H = 120;
   let spyPath = ""; let spyUp = true;
@@ -169,9 +184,7 @@ export default function Home() {
             <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
               <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold">Portefeuille (simulation)</p>
               <p className="text-3xl font-semibold mt-3">{fcfa(totalValue)}</p>
-              <p className={`text-sm font-semibold mt-2 ${overallPl >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>
-                {overallPl >= 0 ? "▲" : "▼"} {signFcfa(overallPl)} ({overallPl >= 0 ? "+" : ""}{overallPlPct.toFixed(1)} %) depuis le départ
-              </p>
+              <p className={`text-sm font-semibold mt-2 ${overallPl >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{overallPl >= 0 ? "▲" : "▼"} {signFcfa(overallPl)} ({overallPl >= 0 ? "+" : ""}{overallPlPct.toFixed(1)} %) depuis le départ</p>
               <p className="text-xs text-[#6E7268] mt-1">Liquidités : {fcfa(cash)} · investi : {fcfa(holdingsValue)} · départ : {fcfa(starting)}</p>
             </div>
 
@@ -273,13 +286,19 @@ export default function Home() {
               )}
             </div>
 
-            {/* Historique & gains */}
             {history && (
               <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
                 <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-2">Historique &amp; gains</p>
-                <p className="text-sm">Gains réalisés (verrouillés par tes ventes) :{" "}
-                  <span className={`font-semibold ${history.totalRealizedPl >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{signFcfa(history.totalRealizedPl)}</span>
-                </p>
+
+                <div className="rounded-xl bg-[#F6F2E9] border border-[#EFEADD] p-3 mb-3">
+                  <p className="text-xs text-[#6E7268]">Aujourd'hui</p>
+                  <p className={`text-lg font-semibold ${!todayDay || todayDay.sells === 0 ? "text-[#6E7268]" : todayDay.realizedPl >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>
+                    {!todayDay || todayDay.sells === 0 ? "Aucune vente aujourd'hui" : `${todayDay.realizedPl >= 0 ? "▲" : "▼"} ${signFcfa(todayDay.realizedPl)}`}
+                  </p>
+                  {todayDay && <p className="text-xs text-[#9A9D92] mt-0.5">{todayDay.buys} achat(s) · {todayDay.sells} vente(s) aujourd'hui</p>}
+                </div>
+
+                <p className="text-sm">Gains réalisés au total :{" "}<span className={`font-semibold ${history.totalRealizedPl >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{signFcfa(history.totalRealizedPl)}</span></p>
                 <p className="text-xs text-[#9A9D92] mt-1">Un gain se « verrouille » à la vente. Avant ça, il est latent (visible dans tes positions).</p>
 
                 {history.daily.length > 0 && (
@@ -308,13 +327,14 @@ export default function Home() {
                         </div>
                         {o.side === "sell" && o.realizedPl !== null ? (
                           <span className={`text-sm font-semibold ${o.realizedPl >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{o.realizedPl >= 0 ? "gain " : "perte "}{signFcfa(o.realizedPl)}</span>
-                        ) : (
-                          <span className="text-sm text-[#6E7268]">{fcfa(o.total)}</span>
-                        )}
+                        ) : (<span className="text-sm text-[#6E7268]">{fcfa(o.total)}</span>)}
                       </div>
                     ))
                   )}
                 </div>
+
+                <button onClick={sendRecap} disabled={sendingRecap} className="w-full mt-4 py-3 rounded-xl bg-[#1F4D3A] text-white font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{sendingRecap ? "Envoi…" : "📲 Envoyer le récap sur Telegram"}</button>
+                {recapNote && <p className="text-sm font-medium text-[#2F6B4F] mt-2">{recapNote}</p>}
               </div>
             )}
           </>
