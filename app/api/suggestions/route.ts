@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { generateSuggestions } from "@/lib/suggestions";
 
+export const maxDuration = 60; // plus de marge (selon la limite du plan Vercel)
+
 export async function GET() {
   const { data: portfolio } = await supabaseAdmin.from("portfolios").select("id").limit(1).single();
   if (!portfolio) return NextResponse.json({ suggestions: [] });
@@ -16,6 +18,11 @@ export async function POST() {
     const suggestions = await generateSuggestions();
     return NextResponse.json({ ok: true, suggestions });
   } catch (e) {
+    const status = (e as { status?: number })?.status;
+    const overloaded = status === 529 || status === 503 || /overload/i.test(String((e as Error)?.message));
+    if (overloaded) {
+      return NextResponse.json({ error: "L'IA est très sollicitée en ce moment. Réessaie dans quelques secondes 🙂" }, { status: 503 });
+    }
     const detail = e instanceof Error ? e.message : String(e);
     console.error("Erreur suggestions:", e);
     return NextResponse.json({ error: detail }, { status: 500 });

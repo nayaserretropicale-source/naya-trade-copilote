@@ -11,17 +11,21 @@ const MARKETS = [
   { symbol: "IBIT", name: "Bitcoin (ETF)",  tier: "Dynamique" },
 ];
 
-// Reessaie automatiquement si Anthropic est surcharge (529) ou indisponible
-async function callClaudeWithRetry(anthropic: Anthropic, params: Anthropic.MessageCreateParams, tries = 3): Promise<Anthropic.Message> {
+function isOverloaded(e: unknown): boolean {
+  const status = (e as { status?: number })?.status;
+  return status === 529 || status === 503 || status === 500 || /overload/i.test(String((e as Error)?.message));
+}
+
+// Reessaie si Anthropic est surcharge, mais borne dans le temps (limite Vercel)
+async function callClaudeWithRetry(anthropic: Anthropic, params: Anthropic.MessageCreateParams, tries = 4): Promise<Anthropic.Message> {
   let lastErr: unknown;
   for (let i = 0; i < tries; i++) {
     try {
       return await anthropic.messages.create(params) as Anthropic.Message;
     } catch (e) {
       lastErr = e;
-      const status = (e as { status?: number })?.status;
-      if (status === 529 || status === 503 || status === 500) {
-        await new Promise((r) => setTimeout(r, 1000 * (i + 1))); // attend 1s, puis 2s, puis 3s
+      if (isOverloaded(e) && i < tries - 1) {
+        await new Promise((r) => setTimeout(r, 600 * (i + 1))); // 0,6s puis 1,2s puis 1,8s
         continue;
       }
       throw e;
