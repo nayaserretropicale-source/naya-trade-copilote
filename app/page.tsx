@@ -73,12 +73,12 @@ export default function Home() {
   async function loadSnapshots() { try { const res = await fetch("/api/snapshots", { method: "POST" }); const data = await res.json(); if (data.series) setSnaps(data.series); } catch {} }
   async function loadWeekly() { try { const res = await fetch("/api/weekly"); const data = await res.json(); setWeekly(data.review ?? null); } catch {} }
 
-  // Rafraichissement des donnees vivantes (valeur, positions, marche, historique)
+  // Chiffres vivants (Supabase + Finnhub, pas Twelve Data) — rafraichis toutes les 60 s
   async function refreshLive() {
     if (refreshingRef.current) return;
     refreshingRef.current = true;
     try {
-      await Promise.all([loadPortfolio(), loadPositions(), loadMarket(), loadHistory()]);
+      await Promise.all([loadPortfolio(), loadPositions(), loadHistory()]);
       setLastUpdated(new Date());
     } catch {} finally { refreshingRef.current = false; }
   }
@@ -91,10 +91,10 @@ export default function Home() {
     })();
   }, []);
 
-  // Auto-actualisation : toutes les 60 s + a chaque retour sur l'app
+  // Toutes les 60 s : chiffres vivants. Au retour sur l'app : tout, y compris le marche.
   useEffect(() => {
     const id = setInterval(() => { refreshLive(); }, 60000);
-    const onVisible = () => { if (document.visibilityState === "visible") refreshLive(); };
+    const onVisible = () => { if (document.visibilityState === "visible") { refreshLive(); loadMarket(); } };
     document.addEventListener("visibilitychange", onVisible);
     return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVisible); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -340,7 +340,7 @@ export default function Home() {
             <div ref={buyRef} className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
               <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-3">Passer un achat (simulation)</p>
               <div className="space-y-2">
-                <input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="Symbole (ex: SPY)" className="w-full px-4 py-3 rounded-xl border border-[#E6DFD0] outline-none focus:border-[#2F6B4F]" />
+                <input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="Symbole (ex: SPY, NKE)" className="w-full px-4 py-3 rounded-xl border border-[#E6DFD0] outline-none focus:border-[#2F6B4F]" />
                 <div className="flex gap-2">
                   {QUICK_AMOUNTS.map((a) => (
                     <button key={a} onClick={() => setAmount(a)} className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition ${amount === a ? "bg-[#1F4D3A] text-white border-[#1F4D3A]" : "bg-white border-[#E6DFD0] hover:bg-[#FCFAF4]"}`}>{Number(a).toLocaleString("fr-FR")} F</button>
