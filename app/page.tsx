@@ -12,6 +12,7 @@ type Suggestion = { id: string; symbol: string; name: string | null; action: str
 type Op = { date: string; symbol: string; side: string; quantity: number; price: number; total: number; realizedPl: number | null };
 type Day = { date: string; realizedPl: number; buys: number; sells: number };
 type History = { operations: Op[]; daily: Day[]; totalRealizedPl: number };
+type Snap = { date: string; value: number };
 
 const RISK_STYLE: Record<string, string> = {
   faible: "text-[#1F4D3A] bg-[#EAF1EC] border-[#D4E2D7]",
@@ -35,6 +36,7 @@ export default function Home() {
   const [market, setMarket] = useState<Market | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [history, setHistory] = useState<History | null>(null);
+  const [snaps, setSnaps] = useState<Snap[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,10 +64,11 @@ export default function Home() {
   async function loadMarket() { try { const res = await fetch("/api/market"); const data = await res.json(); if (!data.error) setMarket(data); } catch {} }
   async function loadSuggestions() { try { const res = await fetch("/api/suggestions"); const data = await res.json(); setSuggestions(data.suggestions ?? []); } catch {} }
   async function loadHistory() { try { const res = await fetch("/api/history"); const data = await res.json(); setHistory(data); } catch {} }
+  async function loadSnapshots() { try { const res = await fetch("/api/snapshots", { method: "POST" }); const data = await res.json(); if (data.series) setSnaps(data.series); } catch {} }
 
   useEffect(() => {
     (async () => {
-      try { await loadPortfolio(); await loadPositions(); await loadReport(); await loadMarket(); await loadSuggestions(); await loadHistory(); }
+      try { await loadPortfolio(); await loadPositions(); await loadReport(); await loadMarket(); await loadSuggestions(); await loadHistory(); await loadSnapshots(); }
       catch (e) { setError(e instanceof Error ? e.message : "Erreur"); }
       finally { setLoading(false); }
     })();
@@ -97,7 +100,7 @@ export default function Home() {
   }
 
   function selectForBuy(sym: string) { setSymbol(sym); setMessage(null); buyRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }
-  async function reloadAll() { await loadPortfolio(); await loadPositions(); await loadHistory(); }
+  async function reloadAll() { await loadPortfolio(); await loadPositions(); await loadHistory(); await loadSnapshots(); }
 
   async function handleBuy() {
     setBuying(true); setMessage(null);
@@ -167,6 +170,20 @@ export default function Home() {
     spyUp = pts[pts.length - 1].close >= pts[0].close;
   }
 
+  // Courbe de la valeur du portefeuille
+  const CW = 600, CH = 120;
+  let valuePath = ""; let valueUp = true; let baseY = 0;
+  if (snaps.length > 1) {
+    const vals = snaps.map((s) => s.value);
+    const min = Math.min(...vals, starting), max = Math.max(...vals, starting);
+    const range = max - min || 1;
+    const x = (i: number) => (i / (snaps.length - 1)) * CW;
+    const y = (v: number) => CH - ((v - min) / range) * CH;
+    valuePath = snaps.map((s, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(s.value).toFixed(1)}`).join(" ");
+    baseY = y(starting);
+    valueUp = snaps[snaps.length - 1].value >= snaps[0].value;
+  }
+
   return (
     <main className="min-h-screen bg-[#F6F2E9] text-[#1B1E1A] flex justify-center p-6">
       <div className="w-full max-w-md space-y-4">
@@ -188,6 +205,24 @@ export default function Home() {
               <p className="text-3xl font-semibold mt-3">{fcfa(totalValue)}</p>
               <p className={`text-sm font-semibold mt-2 ${overallPl >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{overallPl >= 0 ? "▲" : "▼"} {signFcfa(overallPl)} ({overallPl >= 0 ? "+" : ""}{overallPlPct.toFixed(1)} %) depuis le départ</p>
               <p className="text-xs text-[#6E7268] mt-1">Liquidités : {fcfa(cash)} · investi : {fcfa(holdingsValue)} · départ : {fcfa(starting)}</p>
+            </div>
+
+            <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
+              <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-2">Évolution de ton portefeuille</p>
+              {snaps.length > 1 ? (
+                <>
+                  <svg viewBox={`0 0 ${CW} ${CH}`} className="w-full" style={{ height: 100 }} preserveAspectRatio="none">
+                    <line x1="0" y1={baseY} x2={CW} y2={baseY} stroke="#C9C2B2" strokeWidth="1.5" strokeDasharray="5 5" />
+                    <path d={valuePath} fill="none" stroke={valueUp ? "#2F6B4F" : "#B0432E"} strokeWidth="2.5" />
+                  </svg>
+                  <div className="flex gap-4 mt-2 text-xs text-[#6E7268]">
+                    <span className="flex items-center gap-1"><span className="inline-block w-4 h-[3px]" style={{ background: valueUp ? "#2F6B4F" : "#B0432E" }}></span> Ta valeur</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-4 h-[2px] bg-[#C9C2B2]"></span> Capital de départ</span>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-[#6E7268]">La courbe se construit au fil du temps — un point est enregistré chaque fois que tu ouvres l'app et chaque soir. Reviens demain pour voir la tendance se dessiner. 🌱</p>
+              )}
             </div>
 
             {market && (
