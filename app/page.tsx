@@ -56,6 +56,12 @@ export default function Home() {
   const [selling, setSelling] = useState(false);
   const [sendingRecap, setSendingRecap] = useState(false);
   const [recapNote, setRecapNote] = useState<string | null>(null);
+  const [showAddMarket, setShowAddMarket] = useState(false);
+  const [newSym, setNewSym] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newTier, setNewTier] = useState("Dynamique");
+  const [addingMarket, setAddingMarket] = useState(false);
+  const [marketNote, setMarketNote] = useState<string | null>(null);
   const buyRef = useRef<HTMLDivElement>(null);
   const refreshingRef = useRef(false);
 
@@ -73,14 +79,11 @@ export default function Home() {
   async function loadSnapshots() { try { const res = await fetch("/api/snapshots", { method: "POST" }); const data = await res.json(); if (data.series) setSnaps(data.series); } catch {} }
   async function loadWeekly() { try { const res = await fetch("/api/weekly"); const data = await res.json(); setWeekly(data.review ?? null); } catch {} }
 
-  // Chiffres vivants (Supabase + Finnhub, pas Twelve Data) — rafraichis toutes les 60 s
   async function refreshLive() {
     if (refreshingRef.current) return;
     refreshingRef.current = true;
-    try {
-      await Promise.all([loadPortfolio(), loadPositions(), loadHistory()]);
-      setLastUpdated(new Date());
-    } catch {} finally { refreshingRef.current = false; }
+    try { await Promise.all([loadPortfolio(), loadPositions(), loadHistory()]); setLastUpdated(new Date()); }
+    catch {} finally { refreshingRef.current = false; }
   }
 
   useEffect(() => {
@@ -91,7 +94,6 @@ export default function Home() {
     })();
   }, []);
 
-  // Toutes les 60 s : chiffres vivants. Au retour sur l'app : tout, y compris le marche.
   useEffect(() => {
     const id = setInterval(() => { refreshLive(); }, 60000);
     const onVisible = () => { if (document.visibilityState === "visible") { refreshLive(); loadMarket(); } };
@@ -129,6 +131,21 @@ export default function Home() {
   function selectForBuy(sym: string) { setSymbol(sym); setMessage(null); buyRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }
   async function reloadAll() { await loadPortfolio(); await loadPositions(); await loadHistory(); await loadSnapshots(); setLastUpdated(new Date()); }
 
+  async function addMarket() {
+    setAddingMarket(true); setMarketNote(null);
+    try {
+      const res = await fetch("/api/watchlist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: newSym, name: newName, tier: newTier }) });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setNewSym(""); setNewName(""); setShowAddMarket(false);
+      await loadMarket();
+    } catch (e) { setMarketNote(e instanceof Error ? e.message : "Erreur"); }
+    finally { setAddingMarket(false); }
+  }
+  async function removeMarket(sym: string) {
+    try { await fetch(`/api/watchlist?symbol=${encodeURIComponent(sym)}`, { method: "DELETE" }); await loadMarket(); } catch {}
+  }
+
   async function handleBuy() {
     setBuying(true); setMessage(null);
     try {
@@ -162,12 +179,8 @@ export default function Home() {
   }
   async function handleWeekly() {
     setGeneratingWeekly(true); setWeeklyNote(null);
-    try {
-      const res = await fetch("/api/weekly", { method: "POST" });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setWeekly(data.review ?? null);
-    } catch (e) { setWeeklyNote(e instanceof Error ? e.message : "Erreur"); }
+    try { const res = await fetch("/api/weekly", { method: "POST" }); const data = await res.json(); if (data.error) throw new Error(data.error); setWeekly(data.review ?? null); }
+    catch (e) { setWeeklyNote(e instanceof Error ? e.message : "Erreur"); }
     finally { setGeneratingWeekly(false); }
   }
   async function askSuggestions() {
@@ -188,12 +201,8 @@ export default function Home() {
   }
   async function sendRecap() {
     setSendingRecap(true); setRecapNote(null);
-    try {
-      const res = await fetch("/api/recap", { method: "POST" });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setRecapNote("Récap envoyé sur Telegram ✓");
-    } catch (e) { setRecapNote(e instanceof Error ? e.message : "Erreur"); }
+    try { const res = await fetch("/api/recap", { method: "POST" }); const data = await res.json(); if (data.error) throw new Error(data.error); setRecapNote("Récap envoyé sur Telegram ✓"); }
+    catch (e) { setRecapNote(e instanceof Error ? e.message : "Erreur"); }
     finally { setSendingRecap(false); }
   }
 
@@ -258,27 +267,52 @@ export default function Home() {
                   </div>
                 </>
               ) : (
-                <p className="text-sm text-[#6E7268]">La courbe se construit au fil du temps — un point est enregistré chaque fois que tu ouvres l'app et chaque soir. Reviens demain pour voir la tendance se dessiner. 🌱</p>
+                <p className="text-sm text-[#6E7268]">La courbe se construit au fil du temps — un point chaque jour. Reviens demain pour voir la tendance. 🌱</p>
               )}
             </div>
 
             {market && (
               <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
-                <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-2">Marché — par niveau de risque</p>
-                {TIERS.map((tier) => (
-                  <div key={tier} className="mb-2">
-                    <span className={`inline-block text-xs font-semibold px-2 py-1 rounded-full border ${TIER_STYLE[tier]}`}>{tier}</span>
-                    {market.markets.filter((m) => m.tier === tier).map((m) => (
-                      <div key={m.symbol} className="flex items-center justify-between py-2 border-b border-[#F3EFE4] last:border-b-0">
-                        <div className="pr-2">
-                          <p className="text-sm font-semibold">{m.name} <span className={`text-xs font-semibold ${m.changePct === null ? "text-[#9A9D92]" : m.changePct >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{m.changePct === null ? "" : `${m.changePct >= 0 ? "▲" : "▼"} ${Math.abs(m.changePct)}%`}</span></p>
-                          <p className="text-xs text-[#6E7268] mt-0.5">{m.explain}</p>
-                        </div>
-                        <button onClick={() => selectForBuy(m.symbol)} className="flex-none text-xs font-semibold text-[#1F4D3A] bg-[#EAF1EC] border border-[#D4E2D7] px-3 py-2 rounded-xl hover:brightness-95 transition">Acheter</button>
-                      </div>
-                    ))}
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold">Marché — par niveau de risque</p>
+                  <button onClick={() => { setShowAddMarket((v) => !v); setMarketNote(null); }} className="text-xs font-semibold text-[#1F4D3A] bg-[#EAF1EC] border border-[#D4E2D7] px-2 py-1 rounded-lg hover:brightness-95 transition">{showAddMarket ? "Fermer" : "+ Ajouter"}</button>
+                </div>
+
+                {showAddMarket && (
+                  <div className="border border-[#EFEADD] rounded-xl p-3 mb-3 space-y-2">
+                    <input value={newSym} onChange={(e) => setNewSym(e.target.value.toUpperCase())} placeholder="Symbole (ex: AMZN, MSFT, GOOGL)" className="w-full px-3 py-2 rounded-xl border border-[#E6DFD0] outline-none focus:border-[#2F6B4F]" />
+                    <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nom affiché (optionnel, ex: Amazon)" className="w-full px-3 py-2 rounded-xl border border-[#E6DFD0] outline-none focus:border-[#2F6B4F]" />
+                    <div className="flex gap-2">
+                      {TIERS.map((t) => (
+                        <button key={t} onClick={() => setNewTier(t)} className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition ${newTier === t ? "bg-[#1F4D3A] text-white border-[#1F4D3A]" : "bg-white border-[#E6DFD0] hover:bg-[#FCFAF4]"}`}>{t}</button>
+                      ))}
+                    </div>
+                    <button onClick={addMarket} disabled={addingMarket} className="w-full py-2 rounded-xl bg-[#1F4D3A] text-white text-sm font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{addingMarket ? "Vérification…" : "Ajouter à ma liste"}</button>
+                    {marketNote && <p className="text-sm font-medium text-[#B0432E]">⚠️ {marketNote}</p>}
                   </div>
-                ))}
+                )}
+
+                {TIERS.map((tier) => {
+                  const items = market.markets.filter((m) => m.tier === tier);
+                  if (items.length === 0) return null;
+                  return (
+                    <div key={tier} className="mb-2">
+                      <span className={`inline-block text-xs font-semibold px-2 py-1 rounded-full border ${TIER_STYLE[tier]}`}>{tier}</span>
+                      {items.map((m) => (
+                        <div key={m.symbol} className="flex items-center justify-between py-2 border-b border-[#F3EFE4] last:border-b-0">
+                          <div className="pr-2 flex-1">
+                            <p className="text-sm font-semibold">{m.name} <span className={`text-xs font-semibold ${m.changePct === null ? "text-[#9A9D92]" : m.changePct >= 0 ? "text-[#2F6B4F]" : "text-[#B0432E]"}`}>{m.changePct === null ? "" : `${m.changePct >= 0 ? "▲" : "▼"} ${Math.abs(m.changePct)}%`}</span></p>
+                            {m.explain && <p className="text-xs text-[#6E7268] mt-0.5">{m.explain}</p>}
+                          </div>
+                          <div className="flex items-center gap-1 flex-none">
+                            <button onClick={() => selectForBuy(m.symbol)} className="text-xs font-semibold text-[#1F4D3A] bg-[#EAF1EC] border border-[#D4E2D7] px-3 py-2 rounded-xl hover:brightness-95 transition">Acheter</button>
+                            <button onClick={() => removeMarket(m.symbol)} title="Retirer de ma liste" className="text-xs font-semibold text-[#9A9D92] bg-white border border-[#E6DFD0] px-2 py-2 rounded-xl hover:bg-[#FCFAF4] transition">✕</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
                 {spyPath && (<><svg viewBox={`0 0 ${W} ${H}`} className="w-full mt-2" style={{ height: 80 }} preserveAspectRatio="none"><path d={spyPath} fill="none" stroke={spyUp ? "#2F6B4F" : "#B0432E"} strokeWidth="2" /></svg><p className="text-xs text-[#9A9D92] mt-1">S&amp;P 500 · 90 jours</p></>)}
               </div>
             )}
@@ -325,14 +359,7 @@ export default function Home() {
 
             <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
               <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-3">Bilan de la semaine</p>
-              {weekly ? (
-                <>
-                  <p className="text-sm text-[#33372F] leading-relaxed whitespace-pre-line">{weekly.summary}</p>
-                  <p className="text-xs text-[#9A9D92] mt-2">Établi le {fmtDate(weekly.week_end)}</p>
-                </>
-              ) : (
-                <p className="text-sm text-[#6E7268]">Pas encore de bilan. Génère-le quand tu veux — il arrivera aussi tout seul chaque dimanche soir sur Telegram.</p>
-              )}
+              {weekly ? (<><p className="text-sm text-[#33372F] leading-relaxed whitespace-pre-line">{weekly.summary}</p><p className="text-xs text-[#9A9D92] mt-2">Établi le {fmtDate(weekly.week_end)}</p></>) : (<p className="text-sm text-[#6E7268]">Pas encore de bilan. Génère-le quand tu veux — il arrive aussi chaque dimanche soir sur Telegram.</p>)}
               <button onClick={handleWeekly} disabled={generatingWeekly} className="w-full mt-4 py-3 rounded-xl bg-[#1F4D3A] text-white font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{generatingWeekly ? "Le coach analyse ta semaine…" : "Générer mon bilan de la semaine"}</button>
               {weeklyNote && <p className="text-sm font-medium text-[#B0432E] mt-2">{weeklyNote}</p>}
             </div>
@@ -342,9 +369,7 @@ export default function Home() {
               <div className="space-y-2">
                 <input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="Symbole (ex: SPY, NKE)" className="w-full px-4 py-3 rounded-xl border border-[#E6DFD0] outline-none focus:border-[#2F6B4F]" />
                 <div className="flex gap-2">
-                  {QUICK_AMOUNTS.map((a) => (
-                    <button key={a} onClick={() => setAmount(a)} className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition ${amount === a ? "bg-[#1F4D3A] text-white border-[#1F4D3A]" : "bg-white border-[#E6DFD0] hover:bg-[#FCFAF4]"}`}>{Number(a).toLocaleString("fr-FR")} F</button>
-                  ))}
+                  {QUICK_AMOUNTS.map((a) => (<button key={a} onClick={() => setAmount(a)} className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition ${amount === a ? "bg-[#1F4D3A] text-white border-[#1F4D3A]" : "bg-white border-[#E6DFD0] hover:bg-[#FCFAF4]"}`}>{Number(a).toLocaleString("fr-FR")} F</button>))}
                 </div>
                 <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="numeric" placeholder="Montant en FCFA" className="w-full px-4 py-3 rounded-xl border border-[#E6DFD0] outline-none focus:border-[#2F6B4F]" />
                 <button onClick={handleBuy} disabled={buying} className="w-full py-3 rounded-xl bg-[#1F4D3A] text-white font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{buying ? "Achat en cours…" : "Acheter (simulation)"}</button>
