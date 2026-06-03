@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 const TD = "https://api.twelvedata.com";
+const FINNHUB = "https://finnhub.io/api/v1";
 
 const MARKETS = [
   { symbol: "BND",  name: "Obligations US", tier: "Prudent",   explain: "Prêts aux États et grandes entreprises. Bouge peu — le coussin stable." },
@@ -11,36 +12,38 @@ const MARKETS = [
   { symbol: "VXUS", name: "Monde hors US",  tier: "Équilibré", explain: "Europe, Asie, etc. Pour ne pas dépendre uniquement des États-Unis." },
   { symbol: "QQQ",  name: "Nasdaq (tech)",  tier: "Dynamique", explain: "100 grandes entreprises tech. Plus de potentiel, mais ça secoue plus." },
   { symbol: "NKE",  name: "Nike",           tier: "Dynamique", explain: "Action d'une seule entreprise (Nike). Plus risqué qu'un indice : tout repose sur une société." },
+  { symbol: "TSLA", name: "Tesla",          tier: "Dynamique", explain: "Action Tesla (une seule entreprise). Très volatile : grosses hausses comme grosses baisses. À petite dose." },
   { symbol: "IBIT", name: "Bitcoin (ETF)",  tier: "Dynamique", explain: "Exposition au Bitcoin. Très volatil : fortes hausses ET fortes baisses. À petite dose." },
 ];
 
 export async function GET() {
-  const key = process.env.TWELVEDATA_API_KEY;
-  if (!key) return NextResponse.json({ error: "Cle Twelve Data manquante" }, { status: 500 });
+  const fk = process.env.FINNHUB_API_KEY;
+  const tk = process.env.TWELVEDATA_API_KEY;
 
   try {
-    const symbols = MARKETS.map((m) => m.symbol).join(",");
-    const qRes = await fetch(`${TD}/quote?symbol=${symbols}&apikey=${key}`, { cache: "no-store" });
-    const qData = await qRes.json();
+    // Pourcentages en quasi temps reel via Finnhub (comme tes positions)
+    const markets = await Promise.all(MARKETS.map(async (m) => {
+      let changePct: number | null = null;
+      try {
+        const r = await fetch(`${FINNHUB}/quote?symbol=${m.symbol}&token=${fk}`, { cache: "no-store" });
+        const d = await r.json();
+        if (typeof d.dp === "number" && Number.isFinite(d.dp)) changePct = Number(d.dp.toFixed(2));
+      } catch {}
+      return { symbol: m.symbol, name: m.name, tier: m.tier, explain: m.explain, changePct };
+    }));
 
-    const markets = MARKETS.map((m) => {
-      const d = qData[m.symbol] ?? (qData.symbol === m.symbol ? qData : null);
-      const pct = d ? parseFloat(d.percent_change) : NaN;
-      return {
-        symbol: m.symbol, name: m.name, tier: m.tier, explain: m.explain,
-        changePct: Number.isFinite(pct) ? Number(pct.toFixed(2)) : null,
-      };
-    });
-
-    const cRes = await fetch(`${TD}/time_series?symbol=SPY&interval=1day&outputsize=90&apikey=${key}`, { cache: "no-store" });
-    const cData = await cRes.json();
+    // Graphique 90 jours via Twelve Data (historique : le decalage n'a aucune importance)
     let points: { date: string; close: number }[] = [];
-    if (Array.isArray(cData.values)) {
-      points = cData.values
-        .map((v: { datetime: string; close: string }) => ({ date: v.datetime, close: parseFloat(v.close) }))
-        .filter((p: { close: number }) => Number.isFinite(p.close))
-        .reverse();
-    }
+    try {
+      const cRes = await fetch(`${TD}/time_series?symbol=SPY&interval=1day&outputsize=90&apikey=${tk}`, { cache: "no-store" });
+      const cData = await cRes.json();
+      if (Array.isArray(cData.values)) {
+        points = cData.values
+          .map((v: { datetime: string; close: string }) => ({ date: v.datetime, close: parseFloat(v.close) }))
+          .filter((p: { close: number }) => Number.isFinite(p.close))
+          .reverse();
+      }
+    } catch {}
 
     return NextResponse.json({ markets, chart: { symbol: "SPY", points } });
   } catch (e) {
