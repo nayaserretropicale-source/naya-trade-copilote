@@ -8,7 +8,7 @@ type Position = { symbol: string; name: string; quantity: number; avgPrice: numb
 type Report = { title: string; summary: string; risk_level: string };
 type MarketItem = { symbol: string; name: string; tier: string; explain: string; changePct: number | null };
 type Market = { markets: MarketItem[]; chart: { symbol: string; points: { date: string; close: number }[] } };
-type Suggestion = { id: string; symbol: string; name: string | null; action: string; amount: number | null; reason: string; confidence: string };
+type Suggestion = { id: string; symbol: string; name: string | null; action: string; amount: number | null; fraction: number | null; reason: string; confidence: string };
 type Op = { date: string; symbol: string; side: string; quantity: number; price: number; total: number; realizedPl: number | null };
 type Day = { date: string; realizedPl: number; buys: number; sells: number };
 type History = { operations: Op[]; daily: Day[]; totalRealizedPl: number };
@@ -229,6 +229,9 @@ export default function Home() {
     valueUp = snaps[snaps.length - 1].value >= snaps[0].value;
   }
 
+  const sugLabel = (a: string) => (a === "buy" ? "Achat" : a === "sell" ? "Vente" : "À surveiller");
+  const sugBadge = (a: string) => (a === "buy" ? "text-[#1F4D3A] bg-[#EAF1EC] border-[#D4E2D7]" : a === "sell" ? "text-[#B0432E] bg-[#F6E7E2] border-[#E9C9BF]" : "text-[#A9772A] bg-[#F4ECD8] border-[#E6CFa0]");
+
   return (
     <main className="min-h-screen bg-[#F6F2E9] text-[#1B1E1A] flex justify-center p-6">
       <div className="w-full max-w-md space-y-4">
@@ -277,21 +280,17 @@ export default function Home() {
                   <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold">Marché — par niveau de risque</p>
                   <button onClick={() => { setShowAddMarket((v) => !v); setMarketNote(null); }} className="text-xs font-semibold text-[#1F4D3A] bg-[#EAF1EC] border border-[#D4E2D7] px-2 py-1 rounded-lg hover:brightness-95 transition">{showAddMarket ? "Fermer" : "+ Ajouter"}</button>
                 </div>
-
                 {showAddMarket && (
                   <div className="border border-[#EFEADD] rounded-xl p-3 mb-3 space-y-2">
                     <input value={newSym} onChange={(e) => setNewSym(e.target.value.toUpperCase())} placeholder="Symbole (ex: AMZN, MSFT, GOOGL)" className="w-full px-3 py-2 rounded-xl border border-[#E6DFD0] outline-none focus:border-[#2F6B4F]" />
                     <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nom affiché (optionnel, ex: Amazon)" className="w-full px-3 py-2 rounded-xl border border-[#E6DFD0] outline-none focus:border-[#2F6B4F]" />
                     <div className="flex gap-2">
-                      {TIERS.map((t) => (
-                        <button key={t} onClick={() => setNewTier(t)} className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition ${newTier === t ? "bg-[#1F4D3A] text-white border-[#1F4D3A]" : "bg-white border-[#E6DFD0] hover:bg-[#FCFAF4]"}`}>{t}</button>
-                      ))}
+                      {TIERS.map((t) => (<button key={t} onClick={() => setNewTier(t)} className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition ${newTier === t ? "bg-[#1F4D3A] text-white border-[#1F4D3A]" : "bg-white border-[#E6DFD0] hover:bg-[#FCFAF4]"}`}>{t}</button>))}
                     </div>
                     <button onClick={addMarket} disabled={addingMarket} className="w-full py-2 rounded-xl bg-[#1F4D3A] text-white text-sm font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{addingMarket ? "Vérification…" : "Ajouter à ma liste"}</button>
                     {marketNote && <p className="text-sm font-medium text-[#B0432E]">⚠️ {marketNote}</p>}
                   </div>
                 )}
-
                 {TIERS.map((tier) => {
                   const items = market.markets.filter((m) => m.tier === tier);
                   if (items.length === 0) return null;
@@ -325,20 +324,21 @@ export default function Home() {
             <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
               <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-3">Suggestions de l'IA</p>
               {suggestions.length === 0 ? (
-                <p className="text-sm text-[#6E7268]">Aucune suggestion en attente. Demande à l'IA d'analyser ta situation.</p>
+                <p className="text-sm text-[#6E7268]">Aucune suggestion en attente. Demande à l'IA d'analyser ta situation (achats prudents ou allègements si besoin).</p>
               ) : (
                 <div className="space-y-3">
                   {suggestions.map((s) => (
                     <div key={s.id} className="border border-[#EFEADD] rounded-xl p-3">
                       <div className="flex items-center justify-between">
                         <p className="font-semibold text-sm">{s.name || s.symbol} <span className="text-xs text-[#9A9D92]">({s.symbol})</span></p>
-                        <span className={`text-xs font-semibold px-2 py-1 rounded-full border ${s.action === "buy" ? "text-[#1F4D3A] bg-[#EAF1EC] border-[#D4E2D7]" : "text-[#A9772A] bg-[#F4ECD8] border-[#E6CFa0]"}`}>{s.action === "buy" ? "Achat" : "À surveiller"}</span>
+                        <span className={`text-xs font-semibold px-2 py-1 rounded-full border ${sugBadge(s.action)}`}>{sugLabel(s.action)}</span>
                       </div>
-                      {s.amount ? <p className="text-xs text-[#6E7268] mt-1">Montant suggéré : {fcfa(s.amount)}</p> : null}
+                      {s.action === "buy" && s.amount ? <p className="text-xs text-[#6E7268] mt-1">Montant suggéré : {fcfa(s.amount)}</p> : null}
+                      {s.action === "sell" ? <p className="text-xs text-[#6E7268] mt-1">{s.fraction && s.fraction < 1 ? `Alléger d'environ ${Math.round((s.fraction ?? 0.5) * 100)} %` : "Vendre toute la position"}</p> : null}
                       <p className="text-sm text-[#3A3E36] mt-2 leading-relaxed">{s.reason}</p>
                       <p className="text-xs text-[#9A9D92] mt-1">Confiance : {CONF[s.confidence] ?? s.confidence}</p>
                       <div className="flex gap-2 mt-3">
-                        <button onClick={() => resolveSug(s.id, "validate")} disabled={resolving} className="flex-1 py-2 rounded-xl bg-[#1F4D3A] text-white text-sm font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{s.action === "buy" ? "Valider (simulation)" : "OK, noté"}</button>
+                        <button onClick={() => resolveSug(s.id, "validate")} disabled={resolving} className="flex-1 py-2 rounded-xl bg-[#1F4D3A] text-white text-sm font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{s.action === "buy" ? "Valider l'achat" : s.action === "sell" ? "Valider la vente" : "OK, noté"}</button>
                         <button onClick={() => resolveSug(s.id, "reject")} disabled={resolving} className="flex-1 py-2 rounded-xl bg-white border border-[#E6DFD0] text-sm font-semibold hover:bg-[#FCFAF4] transition disabled:opacity-50">Refuser</button>
                       </div>
                     </div>
