@@ -1,9 +1,9 @@
 import { supabaseAdmin } from "@/lib/supabase";
 
-export async function buildDailyRecap() {
-  const { data: portfolio } = await supabaseAdmin.from("portfolios").select("*").limit(1).single();
+export async function buildDailyRecap(portfolioId: string) {
+  const { data: portfolio } = await supabaseAdmin.from("portfolios").select("*").eq("id", portfolioId).single();
   if (!portfolio) throw new Error("Portefeuille introuvable");
-  const { data: settings } = await supabaseAdmin.from("settings").select("*").eq("portfolio_id", portfolio.id).single();
+  const { data: settings } = await supabaseAdmin.from("settings").select("*").eq("portfolio_id", portfolio.id).maybeSingle();
   const { data: holdings } = await supabaseAdmin.from("holdings").select("*").eq("portfolio_id", portfolio.id);
   const { data: txs } = await supabaseAdmin.from("transactions").select("*").eq("portfolio_id", portfolio.id).order("created_at", { ascending: true });
 

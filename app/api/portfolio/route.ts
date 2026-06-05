@@ -1,31 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getUserPortfolio, unauthorized } from "@/lib/auth";
 
-export async function GET() {
-  try {
-    const { data: portfolio, error: pErr } = await supabaseAdmin
-      .from("portfolios")
-      .select("*")
-      .limit(1)
-      .single();
-
-    if (pErr || !portfolio) {
-      return NextResponse.json({ error: "Portefeuille introuvable" }, { status: 404 });
-    }
-
-    const { data: settings } = await supabaseAdmin
-      .from("settings")
-      .select("*")
-      .eq("portfolio_id", portfolio.id)
-      .single();
-
-    const { data: holdings } = await supabaseAdmin
-      .from("holdings")
-      .select("*")
-      .eq("portfolio_id", portfolio.id);
-
-    return NextResponse.json({ portfolio, settings, holdings: holdings ?? [] });
-  } catch {
-    return NextResponse.json({ error: "Connexion Supabase impossible" }, { status: 500 });
-  }
+export async function GET(req: NextRequest) {
+  const auth = await getUserPortfolio(req);
+  if (!auth) return unauthorized();
+  const { portfolio, settings } = auth;
+  const { data: holdings } = await supabaseAdmin.from("holdings").select("*").eq("portfolio_id", portfolio.id);
+  return NextResponse.json({ portfolio, settings, holdings: holdings ?? [] });
 }

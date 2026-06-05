@@ -1,19 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getUserPortfolio, unauthorized } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
+    const auth = await getUserPortfolio(req);
+    if (!auth) return unauthorized();
+    const { portfolio } = auth;
     const body = await req.json();
     const sym = String(body.symbol ?? "").toUpperCase().trim();
     let fraction = Number(body.fraction);
     if (!Number.isFinite(fraction) || fraction <= 0 || fraction > 1) fraction = 1;
     if (!sym) return NextResponse.json({ error: "Symbole invalide" }, { status: 400 });
 
-    const { data: portfolio } = await supabaseAdmin.from("portfolios").select("*").limit(1).single();
-    if (!portfolio) return NextResponse.json({ error: "Portefeuille introuvable" }, { status: 404 });
-
-    const { data: holding } = await supabaseAdmin.from("holdings").select("*")
-      .eq("portfolio_id", portfolio.id).eq("symbol", sym).maybeSingle();
+    const { data: holding } = await supabaseAdmin.from("holdings").select("*").eq("portfolio_id", portfolio.id).eq("symbol", sym).maybeSingle();
     if (!holding || holding.quantity <= 0) return NextResponse.json({ error: "Position introuvable" }, { status: 404 });
 
     const token = process.env.FINNHUB_API_KEY;
@@ -27,16 +27,9 @@ export async function POST(req: NextRequest) {
     const proceeds = sellQty * price;
     const realizedPl = (price - holding.avg_price) * sellQty;
 
-    await supabaseAdmin.from("transactions").insert({
-      portfolio_id: portfolio.id, symbol: sym, side: "sell",
-      quantity: sellQty, price, total: proceeds, source: "manual",
-    });
-
-    if (remaining <= 0.000001) {
-      await supabaseAdmin.from("holdings").delete().eq("id", holding.id);
-    } else {
-      await supabaseAdmin.from("holdings").update({ quantity: remaining, updated_at: new Date().toISOString() }).eq("id", holding.id);
-    }
+    await supabaseAdmin.from("transactions").insert({ portfolio_id: portfolio.id, symbol: sym, side: "sell", quantity: sellQty, price, total: proceeds, source: "manual" });
+    if (remaining <= 0.000001) await supabaseAdmin.from("holdings").delete().eq("id", holding.id);
+    else await supabaseAdmin.from("holdings").update({ quantity: remaining, updated_at: new Date().toISOString() }).eq("id", holding.id);
 
     const newCash = portfolio.cash_balance + proceeds;
     await supabaseAdmin.from("portfolios").update({ cash_balance: newCash }).eq("id", portfolio.id);

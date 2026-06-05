@@ -1,20 +1,19 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getUserPortfolio, unauthorized } from "@/lib/auth";
 
 const TD = "https://api.twelvedata.com";
 const FINNHUB = "https://finnhub.io/api/v1";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await getUserPortfolio(req);
+  if (!auth) return unauthorized();
+  const { portfolio } = auth;
   const fk = process.env.FINNHUB_API_KEY;
   const tk = process.env.TWELVEDATA_API_KEY;
   try {
-    const { data: portfolio } = await supabaseAdmin.from("portfolios").select("id").limit(1).single();
-    let list: { symbol: string; name: string; tier: string; explain: string | null }[] = [];
-    if (portfolio) {
-      const { data } = await supabaseAdmin.from("watchlist").select("symbol,name,tier,explain")
-        .eq("portfolio_id", portfolio.id).order("created_at", { ascending: true });
-      list = data ?? [];
-    }
+    const { data } = await supabaseAdmin.from("watchlist").select("symbol,name,tier,explain").eq("portfolio_id", portfolio.id).order("created_at", { ascending: true });
+    const list = data ?? [];
 
     const markets = await Promise.all(list.map(async (m) => {
       let changePct: number | null = null;
@@ -30,9 +29,7 @@ export async function GET() {
     try {
       const cRes = await fetch(`${TD}/time_series?symbol=SPY&interval=1day&outputsize=90&apikey=${tk}`, { cache: "no-store" });
       const cData = await cRes.json();
-      if (Array.isArray(cData.values)) {
-        points = cData.values.map((v: { datetime: string; close: string }) => ({ date: v.datetime, close: parseFloat(v.close) })).filter((p: { close: number }) => Number.isFinite(p.close)).reverse();
-      }
+      if (Array.isArray(cData.values)) points = cData.values.map((v: { datetime: string; close: string }) => ({ date: v.datetime, close: parseFloat(v.close) })).filter((p: { close: number }) => Number.isFinite(p.close)).reverse();
     } catch {}
 
     return NextResponse.json({ markets, chart: { symbol: "SPY", points } });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 type Portfolio = { id: string; starting_capital: number; cash_balance: number };
 type Settings = { max_per_trade: number; stop_loss_pct: number; require_human_validation: boolean; agents_paused: boolean; usd_to_xof: number };
@@ -30,6 +31,66 @@ const CONF: Record<string, string> = { faible: "faible", moderee: "modérée", e
 const QUICK_AMOUNTS = ["5000", "15000", "30000"];
 
 export default function Home() {
+  const [token, setToken] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+
+  useEffect(() => {
+    supabaseBrowser.auth.getSession().then(({ data }) => { setToken(data.session?.access_token ?? null); setAuthReady(true); });
+    const { data: sub } = supabaseBrowser.auth.onAuthStateChange((_e, session) => { setToken(session?.access_token ?? null); });
+    return () => { sub.subscription.unsubscribe(); };
+  }, []);
+
+  if (!authReady) return <main className="min-h-screen bg-[#F6F2E9] flex items-center justify-center"><p className="text-[#6E7268]">Chargement…</p></main>;
+  if (!token) return <AuthScreen />;
+  return <Dashboard token={token} />;
+}
+
+function AuthScreen() {
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit() {
+    setBusy(true); setErr(null);
+    try {
+      if (mode === "signup") {
+        const { error } = await supabaseBrowser.auth.signUp({ email, password });
+        if (error) throw error;
+      } else {
+        const { error } = await supabaseBrowser.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+      }
+    } catch (e) { setErr(e instanceof Error ? e.message : "Erreur"); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <main className="min-h-screen bg-[#F6F2E9] text-[#1B1E1A] flex items-center justify-center p-6">
+      <div className="w-full max-w-sm">
+        <div className="text-center mb-6">
+          <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold">Naya · Copilote Marché</p>
+          <h1 className="text-2xl font-semibold mt-1">{mode === "login" ? "Connexion" : "Créer un compte"}</h1>
+          <p className="text-sm text-[#6E7268] mt-2">Apprends la bourse en simulation, sans argent réel.</p>
+        </div>
+        <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm space-y-3">
+          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="Email" className="w-full px-4 py-3 rounded-xl border border-[#E6DFD0] outline-none focus:border-[#2F6B4F]" />
+          <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="Mot de passe" className="w-full px-4 py-3 rounded-xl border border-[#E6DFD0] outline-none focus:border-[#2F6B4F]" />
+          <button onClick={submit} disabled={busy || !email || !password} className="w-full py-3 rounded-xl bg-[#1F4D3A] text-white font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{busy ? "Patiente…" : mode === "login" ? "Se connecter" : "Créer mon compte"}</button>
+          {err && <p className="text-sm font-medium text-[#B0432E]">⚠️ {err}</p>}
+          <button onClick={() => { setMode(mode === "login" ? "signup" : "login"); setErr(null); }} className="w-full text-sm text-[#1F4D3A] font-medium pt-1">{mode === "login" ? "Pas encore de compte ? Créer un compte" : "Déjà un compte ? Se connecter"}</button>
+        </div>
+        <p className="text-xs text-[#9A9D92] text-center mt-4">Simulation éducative — aucun argent réel n'est utilisé.</p>
+      </div>
+    </main>
+  );
+}
+
+function Dashboard({ token }: { token: string }) {
+  const authedFetch = (path: string, options: RequestInit = {}) =>
+    fetch(path, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` } });
+
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
@@ -66,18 +127,18 @@ export default function Home() {
   const refreshingRef = useRef(false);
 
   async function loadPortfolio() {
-    const res = await fetch("/api/portfolio");
+    const res = await authedFetch("/api/portfolio");
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     setPortfolio(data.portfolio); setSettings(data.settings);
   }
-  async function loadPositions() { try { const res = await fetch("/api/positions"); const data = await res.json(); setPositions(data.positions ?? []); } catch {} }
-  async function loadReport() { const res = await fetch("/api/report"); const data = await res.json(); if (data.report) setReport(data.report); }
-  async function loadMarket() { try { const res = await fetch("/api/market"); const data = await res.json(); if (!data.error) setMarket(data); } catch {} }
-  async function loadSuggestions() { try { const res = await fetch("/api/suggestions"); const data = await res.json(); setSuggestions(data.suggestions ?? []); } catch {} }
-  async function loadHistory() { try { const res = await fetch("/api/history"); const data = await res.json(); setHistory(data); } catch {} }
-  async function loadSnapshots() { try { const res = await fetch("/api/snapshots", { method: "POST" }); const data = await res.json(); if (data.series) setSnaps(data.series); } catch {} }
-  async function loadWeekly() { try { const res = await fetch("/api/weekly"); const data = await res.json(); setWeekly(data.review ?? null); } catch {} }
+  async function loadPositions() { try { const res = await authedFetch("/api/positions"); const data = await res.json(); setPositions(data.positions ?? []); } catch {} }
+  async function loadReport() { const res = await authedFetch("/api/report"); const data = await res.json(); if (data.report) setReport(data.report); }
+  async function loadMarket() { try { const res = await authedFetch("/api/market"); const data = await res.json(); if (!data.error) setMarket(data); } catch {} }
+  async function loadSuggestions() { try { const res = await authedFetch("/api/suggestions"); const data = await res.json(); setSuggestions(data.suggestions ?? []); } catch {} }
+  async function loadHistory() { try { const res = await authedFetch("/api/history"); const data = await res.json(); setHistory(data); } catch {} }
+  async function loadSnapshots() { try { const res = await authedFetch("/api/snapshots", { method: "POST" }); const data = await res.json(); if (data.series) setSnaps(data.series); } catch {} }
+  async function loadWeekly() { try { const res = await authedFetch("/api/weekly"); const data = await res.json(); setWeekly(data.review ?? null); } catch {} }
 
   async function refreshLive() {
     if (refreshingRef.current) return;
@@ -92,6 +153,7 @@ export default function Home() {
       catch (e) { setError(e instanceof Error ? e.message : "Erreur"); }
       finally { setLoading(false); }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -130,11 +192,12 @@ export default function Home() {
 
   function selectForBuy(sym: string) { setSymbol(sym); setMessage(null); buyRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }); }
   async function reloadAll() { await loadPortfolio(); await loadPositions(); await loadHistory(); await loadSnapshots(); setLastUpdated(new Date()); }
+  async function logout() { await supabaseBrowser.auth.signOut(); }
 
   async function addMarket() {
     setAddingMarket(true); setMarketNote(null);
     try {
-      const res = await fetch("/api/watchlist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: newSym, name: newName, tier: newTier }) });
+      const res = await authedFetch("/api/watchlist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: newSym, name: newName, tier: newTier }) });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setNewSym(""); setNewName(""); setShowAddMarket(false);
@@ -143,13 +206,13 @@ export default function Home() {
     finally { setAddingMarket(false); }
   }
   async function removeMarket(sym: string) {
-    try { await fetch(`/api/watchlist?symbol=${encodeURIComponent(sym)}`, { method: "DELETE" }); await loadMarket(); } catch {}
+    try { await authedFetch(`/api/watchlist?symbol=${encodeURIComponent(sym)}`, { method: "DELETE" }); await loadMarket(); } catch {}
   }
 
   async function handleBuy() {
     setBuying(true); setMessage(null);
     try {
-      const res = await fetch("/api/trade", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol, amountXof: Number(amount) }) });
+      const res = await authedFetch("/api/trade", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol, amountXof: Number(amount) }) });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setMessage({ type: "ok", text: `Acheté ${data.quantity.toFixed(4)} ${data.symbol} à ${data.price.toFixed(2)} $ · liquidités : ${fcfa(data.newCash)}` });
@@ -160,7 +223,7 @@ export default function Home() {
   async function doSell(sym: string, fraction: number) {
     setSelling(true); setMessage(null);
     try {
-      const res = await fetch("/api/sell", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: sym, fraction }) });
+      const res = await authedFetch("/api/sell", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: sym, fraction }) });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       const word = data.realizedPl >= 0 ? "gain" : "perte";
@@ -173,26 +236,26 @@ export default function Home() {
   }
   async function handleReport() {
     setGenerating(true);
-    try { const res = await fetch("/api/report", { method: "POST" }); const data = await res.json(); if (data.error) throw new Error(data.error); setReport(data.report); }
+    try { const res = await authedFetch("/api/report", { method: "POST" }); const data = await res.json(); if (data.error) throw new Error(data.error); setReport(data.report); }
     catch (e) { setReport({ title: "Erreur", summary: e instanceof Error ? e.message : "Erreur", risk_level: "faible" }); }
     finally { setGenerating(false); }
   }
   async function handleWeekly() {
     setGeneratingWeekly(true); setWeeklyNote(null);
-    try { const res = await fetch("/api/weekly", { method: "POST" }); const data = await res.json(); if (data.error) throw new Error(data.error); setWeekly(data.review ?? null); }
+    try { const res = await authedFetch("/api/weekly", { method: "POST" }); const data = await res.json(); if (data.error) throw new Error(data.error); setWeekly(data.review ?? null); }
     catch (e) { setWeeklyNote(e instanceof Error ? e.message : "Erreur"); }
     finally { setGeneratingWeekly(false); }
   }
   async function askSuggestions() {
     setAskingSug(true);
-    try { const res = await fetch("/api/suggestions", { method: "POST" }); const data = await res.json(); if (data.error) throw new Error(data.error); setSuggestions(data.suggestions ?? []); }
+    try { const res = await authedFetch("/api/suggestions", { method: "POST" }); const data = await res.json(); if (data.error) throw new Error(data.error); setSuggestions(data.suggestions ?? []); }
     catch (e) { setError(e instanceof Error ? e.message : "Erreur"); }
     finally { setAskingSug(false); }
   }
   async function resolveSug(id: string, decision: "validate" | "reject") {
     setResolving(true);
     try {
-      const res = await fetch("/api/suggestions/resolve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, decision }) });
+      const res = await authedFetch("/api/suggestions/resolve", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, decision }) });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       await loadSuggestions(); await reloadAll();
@@ -201,7 +264,7 @@ export default function Home() {
   }
   async function sendRecap() {
     setSendingRecap(true); setRecapNote(null);
-    try { const res = await fetch("/api/recap", { method: "POST" }); const data = await res.json(); if (data.error) throw new Error(data.error); setRecapNote("Récap envoyé sur Telegram ✓"); }
+    try { const res = await authedFetch("/api/recap", { method: "POST" }); const data = await res.json(); if (data.error) throw new Error(data.error); setRecapNote(data.note || "Récap envoyé sur Telegram ✓"); }
     catch (e) { setRecapNote(e instanceof Error ? e.message : "Erreur"); }
     finally { setSendingRecap(false); }
   }
@@ -241,7 +304,10 @@ export default function Home() {
             <h1 className="text-2xl font-semibold mt-1">Tableau de bord</h1>
             {lastUpdated && <p className="text-xs text-[#9A9D92] mt-1">🟢 Mis à jour à {fmtTime(lastUpdated)} · auto chaque minute</p>}
           </div>
-          <a href="/backtest" className="text-xs font-semibold text-[#1F4D3A] bg-white border border-[#E6DFD0] px-3 py-2 rounded-xl hover:bg-[#FCFAF4] transition">📊 Backtest</a>
+          <div className="flex flex-col gap-2 items-end">
+            <a href="/backtest" className="text-xs font-semibold text-[#1F4D3A] bg-white border border-[#E6DFD0] px-3 py-2 rounded-xl hover:bg-[#FCFAF4] transition">📊 Backtest</a>
+            <button onClick={logout} className="text-xs font-semibold text-[#9A9D92] bg-white border border-[#E6DFD0] px-3 py-2 rounded-xl hover:bg-[#FCFAF4] transition">Déconnexion</button>
+          </div>
         </div>
 
         {loading && <p className="text-[#6E7268]">Chargement…</p>}
@@ -359,7 +425,7 @@ export default function Home() {
 
             <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
               <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-3">Bilan de la semaine</p>
-              {weekly ? (<><p className="text-sm text-[#33372F] leading-relaxed whitespace-pre-line">{weekly.summary}</p><p className="text-xs text-[#9A9D92] mt-2">Établi le {fmtDate(weekly.week_end)}</p></>) : (<p className="text-sm text-[#6E7268]">Pas encore de bilan. Génère-le quand tu veux — il arrive aussi chaque dimanche soir sur Telegram.</p>)}
+              {weekly ? (<><p className="text-sm text-[#33372F] leading-relaxed whitespace-pre-line">{weekly.summary}</p><p className="text-xs text-[#9A9D92] mt-2">Établi le {fmtDate(weekly.week_end)}</p></>) : (<p className="text-sm text-[#6E7268]">Pas encore de bilan. Génère-le quand tu veux.</p>)}
               <button onClick={handleWeekly} disabled={generatingWeekly} className="w-full mt-4 py-3 rounded-xl bg-[#1F4D3A] text-white font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{generatingWeekly ? "Le coach analyse ta semaine…" : "Générer mon bilan de la semaine"}</button>
               {weeklyNote && <p className="text-sm font-medium text-[#B0432E] mt-2">{weeklyNote}</p>}
             </div>

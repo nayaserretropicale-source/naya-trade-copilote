@@ -1,14 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getUserPortfolio, unauthorized } from "@/lib/auth";
 
 type Tx = { symbol: string; side: string; quantity: number; price: number; total: number; created_at: string };
 
-export async function GET() {
-  const { data: portfolio } = await supabaseAdmin.from("portfolios").select("id").limit(1).single();
-  if (!portfolio) return NextResponse.json({ operations: [], daily: [], totalRealizedPl: 0 });
+export async function GET(req: NextRequest) {
+  const auth = await getUserPortfolio(req);
+  if (!auth) return unauthorized();
+  const { portfolio } = auth;
 
-  const { data: txs } = await supabaseAdmin.from("transactions").select("*")
-    .eq("portfolio_id", portfolio.id).order("created_at", { ascending: true });
+  const { data: txs } = await supabaseAdmin.from("transactions").select("*").eq("portfolio_id", portfolio.id).order("created_at", { ascending: true });
 
   const cost: Record<string, { qty: number; avg: number }> = {};
   const ops: Array<{ date: string; symbol: string; side: string; quantity: number; price: number; total: number; realizedPl: number | null }> = [];

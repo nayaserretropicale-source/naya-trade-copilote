@@ -14,10 +14,10 @@ async function callClaudeWithRetry(anthropic: Anthropic, params: Anthropic.Messa
   throw lastErr;
 }
 
-export async function generateWeeklyReview() {
-  const { data: portfolio } = await supabaseAdmin.from("portfolios").select("*").limit(1).single();
+export async function generateWeeklyReview(portfolioId: string) {
+  const { data: portfolio } = await supabaseAdmin.from("portfolios").select("*").eq("id", portfolioId).single();
   if (!portfolio) throw new Error("Portefeuille introuvable");
-  const { data: settings } = await supabaseAdmin.from("settings").select("*").eq("portfolio_id", portfolio.id).single();
+  const { data: settings } = await supabaseAdmin.from("settings").select("*").eq("portfolio_id", portfolio.id).maybeSingle();
   const { data: holdings } = await supabaseAdmin.from("holdings").select("*").eq("portfolio_id", portfolio.id);
   const { data: txs } = await supabaseAdmin.from("transactions").select("*").eq("portfolio_id", portfolio.id).order("created_at", { ascending: true });
 
@@ -56,29 +56,19 @@ export async function generateWeeklyReview() {
   const context = {
     valeur_totale_fcfa: Math.round(totalValue * rate),
     gain_perte_total_fcfa: Math.round(overallPl * rate),
-    cette_semaine: {
-      achats: weekBuys, ventes: weekSells,
-      gain_perte_realise_fcfa: Math.round(weekRealized * rate),
-    },
+    cette_semaine: { achats: weekBuys, ventes: weekSells, gain_perte_realise_fcfa: Math.round(weekRealized * rate) },
     positions: (holdings ?? []).map((h) => ({ symbol: h.symbol, part_pct: totalValue > 0 ? Number(((h.quantity * h.avg_price) / totalValue * 100).toFixed(0)) : 0 })),
     concentration_max_pct: Number(concentration.toFixed(0)),
   };
 
-  const system = `Tu es le coach de "Naya Copilote Marche", une app de paper trading (simulation) pour Bema, debutant en Cote d'Ivoire. Tu rediges un BILAN HEBDOMADAIRE court et bienveillant.
-Regles:
-- Tutoiement, francais simple et chaleureux, sans jargon.
+  const system = `Tu es le coach de "Naya Copilote Marche", une app de paper trading (simulation) pour un debutant en Cote d'Ivoire. Tu rediges un BILAN HEBDOMADAIRE court et bienveillant.
+- Tutoiement, francais simple, sans jargon.
 - Sois honnete: souligne ce qui a ete bien joue (diversification, prudence, patience) ET ce qui etait risque (trop de transactions, concentration elevee, paris dynamiques).
-- Tu ne predis JAMAIS les prix et ne promets aucun gain. Tu parles uniquement du comportement et des habitudes, pas de l'avenir des marches.
-- Rappelle si utile qu'on apprend en simulation et que la prudence (diversifier, peu trader, horizon long) reduit le risque.
-- 4 a 6 phrases maximum. Texte simple, PAS de Markdown, pas de listes a puces, pas de titres.`;
+- Tu ne predis JAMAIS les prix et ne promets aucun gain. Tu parles du comportement et des habitudes, pas de l'avenir des marches.
+- 4 a 6 phrases maximum. Texte simple, PAS de Markdown, pas de listes, pas de titres.`;
 
   const anthropic = new Anthropic();
-  const msg = await callClaudeWithRetry(anthropic, {
-    model: "claude-sonnet-4-6",
-    max_tokens: 600,
-    system,
-    messages: [{ role: "user", content: `Voici les chiffres de la semaine:\n${JSON.stringify(context, null, 2)}\n\nRedige le bilan.` }],
-  });
+  const msg = await callClaudeWithRetry(anthropic, { model: "claude-sonnet-4-6", max_tokens: 600, system, messages: [{ role: "user", content: `Voici les chiffres de la semaine:\n${JSON.stringify(context, null, 2)}\n\nRedige le bilan.` }] });
 
   const summary = msg.content.map((b) => (b.type === "text" ? b.text : "")).join("").trim();
   const week_end = new Date().toISOString().slice(0, 10);
