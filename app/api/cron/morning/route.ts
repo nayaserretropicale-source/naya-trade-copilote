@@ -1,19 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { buildDailyRecap } from "@/lib/dailyRecap";
-import { sendTelegram } from "@/lib/sendTelegram";
+import { sendTelegramTo } from "@/lib/sendTelegram";
 
 export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
   if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) return NextResponse.json({ error: "Non autorise" }, { status: 401 });
-  try {
-    const { data: owner } = await supabaseAdmin.from("portfolios").select("id").eq("user_id", process.env.OWNER_USER_ID).limit(1).maybeSingle();
-    if (!owner) return NextResponse.json({ ok: true, note: "Pas de proprietaire defini" });
-    const recap = await buildDailyRecap(owner.id);
-    await sendTelegram("🌅 Bonjour ! Voici où en est ton portefeuille ce matin.\n\n" + recap.text);
-    return NextResponse.json({ ok: true });
-  } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+  const { data: rows } = await supabaseAdmin.from("settings").select("portfolio_id,telegram_chat_id").not("telegram_chat_id", "is", null);
+  let sent = 0;
+  for (const r of rows ?? []) {
+    try { const recap = await buildDailyRecap(r.portfolio_id); await sendTelegramTo(r.telegram_chat_id, "🌅 Bonjour ! Voici ton portefeuille ce matin.\n\n" + recap.text); sent++; } catch {}
   }
+  return NextResponse.json({ ok: true, sent });
 }

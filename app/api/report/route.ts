@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { generateReport } from "@/lib/generateReport";
-import { sendTelegram, formatReport } from "@/lib/sendTelegram";
+import { sendTelegramTo, formatReport } from "@/lib/sendTelegram";
 import { getUserPortfolio, unauthorized } from "@/lib/auth";
 
 export const maxDuration = 60;
@@ -19,7 +19,8 @@ export async function POST(req: NextRequest) {
   if (!auth) return unauthorized();
   try {
     const report = await generateReport(auth.portfolio.id);
-    if (auth.userId === process.env.OWNER_USER_ID) { try { await sendTelegram(formatReport(report)); } catch {} }
+    const chatId = auth.settings?.telegram_chat_id as string | undefined;
+    if (chatId) { try { await sendTelegramTo(chatId, formatReport(report)); } catch {} }
     return NextResponse.json({ ok: true, report });
   } catch (e) {
     const status = (e as { status?: number })?.status;
