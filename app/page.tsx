@@ -306,6 +306,7 @@ function Dashboard({ token }: { token: string }) {
           </div>
           <div className="flex flex-col gap-2 items-end">
             <a href="/backtest" className="text-xs font-semibold text-[#1F4D3A] bg-white border border-[#E6DFD0] px-3 py-2 rounded-xl hover:bg-[#FCFAF4] transition">📊 Backtest</a>
+            <a href="/telegram" className="text-xs font-semibold text-[#1F4D3A] bg-white border border-[#E6DFD0] px-3 py-2 rounded-xl hover:bg-[#FCFAF4] transition">Telegram</a>
             <button onClick={logout} className="text-xs font-semibold text-[#9A9D92] bg-white border border-[#E6DFD0] px-3 py-2 rounded-xl hover:bg-[#FCFAF4] transition">Déconnexion</button>
           </div>
         </div>
