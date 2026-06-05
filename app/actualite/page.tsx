@@ -6,6 +6,13 @@ import { supabaseBrowser } from "@/lib/supabaseBrowser";
 type News = { headline: string; source: string; url: string; datetime: number };
 type Mover = { symbol: string; name: string; changePct: number };
 type WL = { symbol: string; name: string };
+type MarketSug = { symbol: string; name: string; tier: string; reason: string };
+
+const TIER_STYLE: Record<string, string> = {
+  "Prudent": "text-[#1F4D3A] bg-[#EAF1EC] border-[#D4E2D7]",
+  "Équilibré": "text-[#A9772A] bg-[#F4ECD8] border-[#E6CFa0]",
+  "Dynamique": "text-[#B0432E] bg-[#F6E7E2] border-[#E9C9BF]",
+};
 
 export default function Actualite() {
   const [token, setToken] = useState<string | null>(null);
@@ -21,6 +28,12 @@ export default function Actualite() {
   const [selSym, setSelSym] = useState<string | null>(null);
   const [symNews, setSymNews] = useState<News[]>([]);
   const [symLoading, setSymLoading] = useState(false);
+
+  const [marketSugs, setMarketSugs] = useState<MarketSug[]>([]);
+  const [loadingMS, setLoadingMS] = useState(false);
+  const [askedMS, setAskedMS] = useState(false);
+  const [adding, setAdding] = useState<string | null>(null);
+  const [msNote, setMsNote] = useState<string | null>(null);
 
   useEffect(() => {
     supabaseBrowser.auth.getSession().then(({ data }) => { setToken(data.session?.access_token ?? null); setReady(true); });
@@ -48,6 +61,25 @@ export default function Actualite() {
     try { const res = await authedFetch("/api/news/summary", { method: "POST" }); const data = await res.json(); if (data.error) throw new Error(data.error); setSummary(data.summary); }
     catch (e) { setSummary(e instanceof Error ? e.message : "Erreur"); }
     finally { setGenSum(false); }
+  }
+
+  async function suggestMarkets() {
+    setLoadingMS(true); setMsNote(null); setAskedMS(true);
+    try { const res = await authedFetch("/api/watchlist/suggest", { method: "POST" }); const data = await res.json(); if (data.error) throw new Error(data.error); setMarketSugs(data.suggestions ?? []); }
+    catch (e) { setMsNote(e instanceof Error ? e.message : "Erreur"); }
+    finally { setLoadingMS(false); }
+  }
+  async function addSuggested(s: MarketSug) {
+    setAdding(s.symbol); setMsNote(null);
+    try {
+      const res = await authedFetch("/api/watchlist", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: s.symbol, name: s.name, tier: s.tier }) });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setMarketSugs((prev) => prev.filter((m) => m.symbol !== s.symbol));
+      setMsNote(`✓ ${s.symbol} ajouté à ta liste.`);
+      await load();
+    } catch (e) { setMsNote(e instanceof Error ? e.message : "Erreur"); }
+    finally { setAdding(null); }
   }
 
   async function loadSym(sym: string) {
@@ -82,6 +114,28 @@ export default function Actualite() {
               <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-2">Le point marché de l'IA</p>
               {summary ? <p className="text-sm text-[#33372F] leading-relaxed whitespace-pre-line">{summary}</p> : <p className="text-sm text-[#6E7268]">Un résumé neutre de l'actu du jour, pour comprendre — jamais pour te dire quoi acheter.</p>}
               <button onClick={genSummary} disabled={genSum} className="w-full mt-3 py-3 rounded-xl bg-[#1F4D3A] text-white font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{genSum ? "L'IA lit l'actu…" : "Générer le point marché"}</button>
+            </div>
+
+            <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
+              <p className="text-xs tracking-widest uppercase text-[#9A9D92] font-semibold mb-2">Découvrir des marchés (IA)</p>
+              <p className="text-sm text-[#6E7268] mb-3">L'IA repère les trous de ta diversification et te propose quoi ajouter (valeurs US vérifiées, pas de prédiction).</p>
+              {marketSugs.length > 0 && (
+                <div className="space-y-3 mb-3">
+                  {marketSugs.map((s) => (
+                    <div key={s.symbol} className="border border-[#EFEADD] rounded-xl p-3">
+                      <div className="flex items-center justify-between">
+                        <p className="font-semibold text-sm">{s.name} <span className="text-xs text-[#9A9D92]">({s.symbol})</span></p>
+                        <span className={`text-xs font-semibold px-2 py-1 rounded-full border ${TIER_STYLE[s.tier] ?? TIER_STYLE["Dynamique"]}`}>{s.tier}</span>
+                      </div>
+                      <p className="text-sm text-[#3A3E36] mt-2 leading-relaxed">{s.reason}</p>
+                      <button onClick={() => addSuggested(s)} disabled={adding === s.symbol} className="w-full mt-3 py-2 rounded-xl bg-[#1F4D3A] text-white text-sm font-semibold hover:bg-[#1a4232] transition disabled:opacity-50">{adding === s.symbol ? "Ajout…" : "Ajouter à ma liste"}</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {askedMS && !loadingMS && marketSugs.length === 0 && !msNote && <p className="text-sm text-[#6E7268] mb-2">Rien de plus à proposer — ta liste est déjà bien diversifiée. 👍</p>}
+              {msNote && <p className="text-sm font-medium text-[#2F6B4F] mb-2">{msNote}</p>}
+              <button onClick={suggestMarkets} disabled={loadingMS} className="w-full py-3 rounded-xl bg-white border border-[#E6DFD0] font-semibold hover:bg-[#FCFAF4] transition disabled:opacity-50">{loadingMS ? "L'IA analyse ta liste…" : "Suggérer des marchés à ajouter"}</button>
             </div>
 
             <div className="bg-white border border-[#E6DFD0] rounded-2xl p-6 shadow-sm">
