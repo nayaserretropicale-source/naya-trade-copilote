@@ -293,7 +293,7 @@ function Dashboard({ token }: { token: string }) {
               <p className="text-[11px] tracking-[0.16em] uppercase text-[#5E7A68] font-semibold">Valeur du portefeuille</p>
               <p className="text-4xl font-semibold mt-2 tracking-tight tabular-nums">{fcfaShort(totalValue)} <span className="text-lg text-[#8C968B] font-medium">FCFA</span></p>
               <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold border mt-3 ${overallPl >= 0 ? BADGE.ok : BADGE.bad}`}>{overallPl >= 0 ? "▲" : "▼"} {signFcfa(overallPl)} · {overallPl >= 0 ? "+" : ""}{overallPlPct.toFixed(2)} %</span>
-              {heroPath && (<svg viewBox={`0 0 ${HW} ${HH}`} preserveAspectRatio="none" className="absolute right-0 bottom-0 w-44 h-16 opacity-90"><path d={heroArea} fill={heroUp ? "rgba(54,194,125,.13)" : "rgba(232,112,93,.13)"} /><path d={heroPath} fill="none" stroke={heroUp ? "#36C27D" : "#E8705D"} strokeWidth="2" /></svg>)}
+              {heroPath && (<svg viewBox={`0 0 ${HW} ${HH}`} preserveAspectRatio="none" className="w-full h-12 mt-4 block opacity-95"><path d={heroArea} fill={heroUp ? "rgba(54,194,125,.13)" : "rgba(232,112,93,.13)"} /><path d={heroPath} fill="none" stroke={heroUp ? "#36C27D" : "#E8705D"} strokeWidth="2" /></svg>)}
               <div className="grid grid-cols-3 gap-2 mt-5">
                 {[["Liquidités", cash], ["Investi", holdingsValue], ["Départ", starting]].map(([k, v]) => (
                   <div key={k as string} className="bg-white/[0.03] border border-[#243029] rounded-2xl p-2.5">
