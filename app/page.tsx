@@ -125,6 +125,8 @@ function Dashboard({ token }: { token: string }) {
 
   const [symbol, setSymbol] = useState("SPY");
   const [amount, setAmount] = useState("15000");
+  const [buyReason, setBuyReason] = useState("");
+  const [sellReason, setSellReason] = useState("");
   const [buying, setBuying] = useState(false);
   const [msgBuy, setMsgBuy] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [msgPos, setMsgPos] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -199,7 +201,6 @@ function Dashboard({ token }: { token: string }) {
   const hasDayData = dayItems.length > 0;
   const anyStale = positions.some((p) => p.stale);
 
-  // Répartition : positions triées par poids + liquidités
   const allocSorted = [...positions].sort((a, b) => b.currentValueUsd - a.currentValueUsd);
   const allocSegments = totalValue > 0
     ? [
@@ -208,7 +209,6 @@ function Dashboard({ token }: { token: string }) {
       ].filter((s) => s.pct > 0.5)
     : [];
 
-  // Tri de la liste des positions
   const sortedPositions = [...positions].sort((a, b) =>
     sortBy === "poids"
       ? b.currentValueUsd - a.currentValueUsd
@@ -237,12 +237,12 @@ function Dashboard({ token }: { token: string }) {
 
   async function handleBuy() {
     setBuying(true); setMsgBuy(null);
-    try { const res = await authedFetch("/api/trade", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol, amountXof: Number(amount) }) }); const data = await res.json(); if (data.error) throw new Error(data.error); setMsgBuy({ type: "ok", text: `Acheté ${data.quantity.toFixed(4)} ${data.symbol} à ${data.price.toFixed(2)} $ · liquidités : ${fcfa(data.newCash)}` }); await reloadAll(); }
+    try { const res = await authedFetch("/api/trade", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol, amountXof: Number(amount), reason: buyReason.trim() || undefined }) }); const data = await res.json(); if (data.error) throw new Error(data.error); setMsgBuy({ type: "ok", text: `Acheté ${data.quantity.toFixed(4)} ${data.symbol} à ${data.price.toFixed(2)} $ · liquidités : ${fcfa(data.newCash)}` }); setBuyReason(""); await reloadAll(); }
     catch (e) { setMsgBuy({ type: "err", text: e instanceof Error ? e.message : "Erreur" }); } finally { setBuying(false); }
   }
   async function doSell(sym: string, fraction: number) {
     setSelling(true); setMsgPos(null);
-    try { const res = await authedFetch("/api/sell", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: sym, fraction }) }); const data = await res.json(); if (data.error) throw new Error(data.error); const word = data.realizedPl >= 0 ? "gain" : "perte"; const scope = data.partial ? "50 % de " : ""; setMsgPos({ type: "ok", text: `Vendu ${scope}${data.symbol} à ${data.price.toFixed(2)} $ · ${word} de ${fcfa(Math.abs(data.realizedPl))}` }); setConfirmSell(null); await reloadAll(); }
+    try { const res = await authedFetch("/api/sell", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: sym, fraction, reason: sellReason.trim() || undefined }) }); const data = await res.json(); if (data.error) throw new Error(data.error); const word = data.realizedPl >= 0 ? "gain" : "perte"; const scope = data.partial ? "50 % de " : ""; setMsgPos({ type: "ok", text: `Vendu ${scope}${data.symbol} à ${data.price.toFixed(2)} $ · ${word} de ${fcfa(Math.abs(data.realizedPl))}` }); setConfirmSell(null); setSellReason(""); await reloadAll(); }
     catch (e) { setMsgPos({ type: "err", text: e instanceof Error ? e.message : "Erreur" }); } finally { setSelling(false); }
   }
   async function handleReport() {
@@ -399,12 +399,15 @@ function Dashboard({ token }: { token: string }) {
                             </div>
                             <div className="h-1.5 rounded-full bg-[#1E2822] mt-2 overflow-hidden"><div className="h-full rounded-full bg-[#2F7D55]" style={{ width: `${Math.max(weight, 3)}%` }} /></div>
                             {confirmSell === p.symbol ? (
-                              <div className="flex gap-2 mt-2">
-                                <button onClick={() => doSell(p.symbol, 0.5)} disabled={selling} className="flex-1 py-2 rounded-xl bg-[#D8B26A] text-[#1A1206] text-sm font-semibold active:scale-95 transition disabled:opacity-50">{selling ? "…" : "Vendre 50 %"}</button>
-                                <button onClick={() => doSell(p.symbol, 1)} disabled={selling} className="flex-1 py-2 rounded-xl bg-[#E8705D] text-[#1A0907] text-sm font-semibold active:scale-95 transition disabled:opacity-50">{selling ? "…" : "Vendre tout"}</button>
-                                <button onClick={() => setConfirmSell(null)} disabled={selling} className="flex-none py-2 px-3 rounded-xl bg-[#18211B] border border-[#243029] text-sm font-semibold active:scale-95 transition">Annuler</button>
+                              <div className="mt-2 space-y-2">
+                                <input value={sellReason} onChange={(e) => setSellReason(e.target.value)} placeholder="Pourquoi tu vends ? (optionnel)" className="w-full px-3 py-2 rounded-xl bg-[#111814] border border-[#243029] text-sm text-[#ECF0EA] placeholder-[#5C645C] outline-none focus:border-[#D8B26A] transition" />
+                                <div className="flex gap-2">
+                                  <button onClick={() => doSell(p.symbol, 0.5)} disabled={selling} className="flex-1 py-2 rounded-xl bg-[#D8B26A] text-[#1A1206] text-sm font-semibold active:scale-95 transition disabled:opacity-50">{selling ? "…" : "Vendre 50 %"}</button>
+                                  <button onClick={() => doSell(p.symbol, 1)} disabled={selling} className="flex-1 py-2 rounded-xl bg-[#E8705D] text-[#1A0907] text-sm font-semibold active:scale-95 transition disabled:opacity-50">{selling ? "…" : "Vendre tout"}</button>
+                                  <button onClick={() => { setConfirmSell(null); setSellReason(""); }} disabled={selling} className="flex-none py-2 px-3 rounded-xl bg-[#18211B] border border-[#243029] text-sm font-semibold active:scale-95 transition">Annuler</button>
+                                </div>
                               </div>
-                            ) : (<button onClick={() => { setConfirmSell(p.symbol); setMsgPos(null); }} className="w-full mt-2 py-2 rounded-xl bg-[#18211B] border border-[#243029] text-sm font-semibold active:scale-95 transition">Vendre</button>)}
+                            ) : (<button onClick={() => { setConfirmSell(p.symbol); setSellReason(""); setMsgPos(null); }} className="w-full mt-2 py-2 rounded-xl bg-[#18211B] border border-[#243029] text-sm font-semibold active:scale-95 transition">Vendre</button>)}
                           </div>
                         );
                       })}
@@ -462,6 +465,7 @@ function Dashboard({ token }: { token: string }) {
                     <input value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} placeholder="Symbole (ex: SPY, NKE)" className={inp} />
                     <div className="flex gap-2">{QUICK_AMOUNTS.map((a) => (<button key={a} onClick={() => setAmount(a)} className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition active:scale-95 ${amount === a ? "bg-[#36C27D] text-[#06140C] border-[#36C27D]" : "bg-[#111814] border-[#243029] text-[#ECF0EA]"}`}>{Number(a).toLocaleString("fr-FR")} F</button>))}</div>
                     <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="numeric" placeholder="Montant en FCFA" className={inp} />
+                    <input value={buyReason} onChange={(e) => setBuyReason(e.target.value)} placeholder="Pourquoi ce trade ? (optionnel — ex: le marché baisse, j'en profite)" className={inp} />
                     <button onClick={handleBuy} disabled={buying} className={btnP}>{buying ? "Achat en cours…" : "Acheter (simulation)"}</button>
                   </div>
                   {msgBuy && (<p className={`mt-3 text-sm font-medium ${msgBuy.type === "ok" ? "text-[#36C27D]" : "text-[#E8705D]"}`}>{msgBuy.type === "ok" ? "✓ " : "⚠️ "}{msgBuy.text}</p>)}
