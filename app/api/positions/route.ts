@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getUserPortfolio, unauthorized } from "@/lib/auth";
 
-type Quote = { price: number; stale: boolean; fetchedAt: string | null };
+type Quote = { price: number; prevClose: number | null; stale: boolean; fetchedAt: string | null };
 
 export async function GET(req: NextRequest) {
   const auth = await getUserPortfolio(req);
@@ -29,11 +29,11 @@ export async function GET(req: NextRequest) {
   // 1. Filet de sécurité : derniers prix connus en cache
   const { data: cached } = await supabaseAdmin
     .from("price_cache")
-    .select("symbol,price,fetched_at")
+    .select("symbol,price,prev_close,fetched_at")
     .in("symbol", symbols);
   const cacheMap = new Map((cached ?? []).map((c) => [c.symbol, c]));
 
-  // 2. Quotes live en PARALLÈLE (plus de boucle séquentielle)
+  // 2. Quotes live en parallèle
   const results = await Promise.all(
     symbols.map(async (symbol) => {
       try {
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
         );
         const d = await q.json();
         if (d && typeof d.c === "number" && d.c > 0) {
-          return { symbol, price: d.c as number, prevClose: typeof d.pc === "number" ? d.pc : null };
+          return { symbol, price: d.c as number, prevClose: typeof d.pc === "number" && d.pc > 0 ? d.pc : null };
         }
       } catch {}
       return { symbol, price: null as number | null, prevClose: null as number | null };
@@ -56,20 +56,20 @@ export async function GET(req: NextRequest) {
 
   for (const r of results) {
     if (r.price !== null) {
-      quotes.set(r.symbol, { price: r.price, stale: false, fetchedAt: now });
+      quotes.set(r.symbol, { price: r.price, prevClose: r.prevClose, stale: false, fetchedAt: now });
       upserts.push({ symbol: r.symbol, price: r.price, prev_close: r.prevClose, fetched_at: now });
     } else {
       const c = cacheMap.get(r.symbol);
       quotes.set(
         r.symbol,
         c
-          ? { price: Number(c.price), stale: true, fetchedAt: c.fetched_at }
-          : { price: NaN, stale: true, fetchedAt: null }
+          ? { price: Number(c.price), prevClose: c.prev_close !== null ? Number(c.prev_close) : null, stale: true, fetchedAt: c.fetched_at }
+          : { price: NaN, prevClose: null, stale: true, fetchedAt: null }
       );
     }
   }
 
-  // 3. Entretien du cache : chaque quote réussie est mémorisée
+  // 3. Entretien du cache
   if (upserts.length) {
     try {
       await supabaseAdmin.from("price_cache").upsert(upserts, { onConflict: "symbol" });
@@ -84,16 +84,26 @@ export async function GET(req: NextRequest) {
     const currentValueUsd = h.quantity * price;
     const costUsd = h.quantity * h.avg_price;
     const plUsd = currentValueUsd - costUsd;
+
+    // Variation du jour (vs clôture de la veille)
+    const dayPlUsd = q.prevClose !== null && hasPrice ? h.quantity * (price - q.prevClose) : null;
+    const dayPlPct = q.prevClose !== null && hasPrice && q.prevClose > 0
+      ? Number((((price - q.prevClose) / q.prevClose) * 100).toFixed(2))
+      : null;
+
     return {
       symbol: h.symbol,
       name: h.name ?? h.symbol,
       quantity: h.quantity,
       avgPrice: h.avg_price,
       price,
+      prevClose: q.prevClose,
       currentValueUsd,
       costUsd,
       plUsd,
       plPct: Number((costUsd > 0 ? (plUsd / costUsd) * 100 : 0).toFixed(1)),
+      dayPlUsd,
+      dayPlPct,
       stale: q.stale,
       priceSource,
       priceAt: q.fetchedAt,

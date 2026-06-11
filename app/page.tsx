@@ -5,7 +5,7 @@ import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 type Portfolio = { id: string; starting_capital: number; cash_balance: number };
 type Settings = { max_per_trade: number; stop_loss_pct: number; require_human_validation: boolean; agents_paused: boolean; usd_to_xof: number };
-type Position = { symbol: string; name: string; quantity: number; avgPrice: number; price: number; currentValueUsd: number; costUsd: number; plUsd: number; plPct: number };
+type Position = { symbol: string; name: string; quantity: number; avgPrice: number; price: number; prevClose: number | null; currentValueUsd: number; costUsd: number; plUsd: number; plPct: number; dayPlUsd: number | null; dayPlPct: number | null; stale: boolean; priceSource: string; priceAt: string | null };
 type Report = { title: string; summary: string; risk_level: string };
 type MarketItem = { symbol: string; name: string; tier: string; explain: string; changePct: number | null };
 type Market = { markets: MarketItem[]; chart: { symbol: string; points: { date: string; close: number }[] } };
@@ -123,7 +123,8 @@ function Dashboard({ token }: { token: string }) {
   const [symbol, setSymbol] = useState("SPY");
   const [amount, setAmount] = useState("15000");
   const [buying, setBuying] = useState(false);
-  const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [msgBuy, setMsgBuy] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [msgPos, setMsgPos] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generatingWeekly, setGeneratingWeekly] = useState(false);
   const [weeklyNote, setWeeklyNote] = useState<string | null>(null);
@@ -177,6 +178,7 @@ function Dashboard({ token }: { token: string }) {
   const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
   const fmtDateTime = (iso: string) => new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   const fmtTime = (d: Date) => d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  const fmtTimeIso = (iso: string) => new Date(iso).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 
   const cash = portfolio?.cash_balance ?? 0;
   const holdingsValue = positions.reduce((s, p) => s + p.currentValueUsd, 0);
@@ -187,6 +189,14 @@ function Dashboard({ token }: { token: string }) {
   const today = new Date().toISOString().slice(0, 10);
   const todayDay = history?.daily.find((d) => d.date === today) ?? null;
 
+  // Variation du jour (portefeuille) : somme des variations vs clôture de la veille
+  const dayItems = positions.filter((p) => p.dayPlUsd !== null);
+  const dayPlTotal = dayItems.reduce((s, p) => s + (p.dayPlUsd ?? 0), 0);
+  const dayBase = dayItems.reduce((s, p) => s + (p.prevClose ?? 0) * p.quantity, 0);
+  const dayPlPctTotal = dayBase > 0 ? (dayPlTotal / dayBase) * 100 : 0;
+  const hasDayData = dayItems.length > 0;
+  const anyStale = positions.some((p) => p.stale);
+
   const concentration = positions.length && totalValue > 0 ? Math.max(...positions.map((p) => p.currentValueUsd / totalValue * 100)) : 0;
   let diversNote = "Aucune position pour l'instant — rien à risquer."; let diversTone = "muted";
   if (positions.length > 0) {
@@ -196,7 +206,7 @@ function Dashboard({ token }: { token: string }) {
   }
   const diversColor = diversTone === "bad" ? "text-[#E8705D]" : diversTone === "ok" ? "text-[#36C27D]" : diversTone === "warn" ? "text-[#D8B26A]" : "text-[#8C968B]";
 
-  function selectForBuy(sym: string) { setSymbol(sym); setMessage(null); setTab("marche"); setTimeout(() => buyRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 60); }
+  function selectForBuy(sym: string) { setSymbol(sym); setMsgBuy(null); setTab("marche"); setTimeout(() => buyRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 60); }
   async function reloadAll() { await loadPortfolio(); await loadPositions(); await loadHistory(); await loadSnapshots(); setLastUpdated(new Date()); }
   async function logout() { await supabaseBrowser.auth.signOut(); }
 
@@ -208,14 +218,14 @@ function Dashboard({ token }: { token: string }) {
   async function removeMarket(sym: string) { try { await authedFetch(`/api/watchlist?symbol=${encodeURIComponent(sym)}`, { method: "DELETE" }); await loadMarket(); } catch {} }
 
   async function handleBuy() {
-    setBuying(true); setMessage(null);
-    try { const res = await authedFetch("/api/trade", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol, amountXof: Number(amount) }) }); const data = await res.json(); if (data.error) throw new Error(data.error); setMessage({ type: "ok", text: `Acheté ${data.quantity.toFixed(4)} ${data.symbol} à ${data.price.toFixed(2)} $ · liquidités : ${fcfa(data.newCash)}` }); await reloadAll(); }
-    catch (e) { setMessage({ type: "err", text: e instanceof Error ? e.message : "Erreur" }); } finally { setBuying(false); }
+    setBuying(true); setMsgBuy(null);
+    try { const res = await authedFetch("/api/trade", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol, amountXof: Number(amount) }) }); const data = await res.json(); if (data.error) throw new Error(data.error); setMsgBuy({ type: "ok", text: `Acheté ${data.quantity.toFixed(4)} ${data.symbol} à ${data.price.toFixed(2)} $ · liquidités : ${fcfa(data.newCash)}` }); await reloadAll(); }
+    catch (e) { setMsgBuy({ type: "err", text: e instanceof Error ? e.message : "Erreur" }); } finally { setBuying(false); }
   }
   async function doSell(sym: string, fraction: number) {
-    setSelling(true); setMessage(null);
-    try { const res = await authedFetch("/api/sell", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: sym, fraction }) }); const data = await res.json(); if (data.error) throw new Error(data.error); const word = data.realizedPl >= 0 ? "gain" : "perte"; const scope = data.partial ? "50 % de " : ""; setMessage({ type: "ok", text: `Vendu ${scope}${data.symbol} à ${data.price.toFixed(2)} $ · ${word} de ${fcfa(Math.abs(data.realizedPl))}` }); setConfirmSell(null); await reloadAll(); }
-    catch (e) { setMessage({ type: "err", text: e instanceof Error ? e.message : "Erreur" }); } finally { setSelling(false); }
+    setSelling(true); setMsgPos(null);
+    try { const res = await authedFetch("/api/sell", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol: sym, fraction }) }); const data = await res.json(); if (data.error) throw new Error(data.error); const word = data.realizedPl >= 0 ? "gain" : "perte"; const scope = data.partial ? "50 % de " : ""; setMsgPos({ type: "ok", text: `Vendu ${scope}${data.symbol} à ${data.price.toFixed(2)} $ · ${word} de ${fcfa(Math.abs(data.realizedPl))}` }); setConfirmSell(null); await reloadAll(); }
+    catch (e) { setMsgPos({ type: "err", text: e instanceof Error ? e.message : "Erreur" }); } finally { setSelling(false); }
   }
   async function handleReport() {
     setGenerating(true);
@@ -268,7 +278,7 @@ function Dashboard({ token }: { token: string }) {
   const btnP = "w-full py-3 rounded-2xl bg-[#36C27D] text-[#06140C] font-semibold active:scale-[0.99] transition disabled:opacity-50";
   const btnG = "w-full py-3 rounded-2xl bg-[#18211B] border border-[#243029] text-[#ECF0EA] font-semibold active:scale-[0.99] transition disabled:opacity-50";
   const inp = "w-full px-4 py-3 rounded-2xl bg-[#111814] border border-[#243029] text-[#ECF0EA] placeholder-[#5C645C] outline-none focus:border-[#36C27D] transition";
-  const TABS: [typeof tab, string][] = [["apercu", "Aperçu"], ["marche", "Marché"], ["ia", "IA"], ["histoire", "Histoire"]];
+  const TABS: [typeof tab, string][] = [["apercu", "Aperçu"], ["marche", "Marché"], ["ia", "IA"], ["histoire", "Journal"]];
 
   const shownMarkets = market ? (marketFilter === "Tous" ? market.markets : market.markets.filter((m) => m.tier === marketFilter)) : [];
 
@@ -279,7 +289,7 @@ function Dashboard({ token }: { token: string }) {
           <div>
             <p className={lbl}>Naya · Copilote Marché</p>
             <h1 className="text-2xl font-semibold mt-1 tracking-tight">Tableau de bord</h1>
-            {lastUpdated && <p className="text-xs text-[#69736A] mt-1">🟢 Mis à jour à {fmtTime(lastUpdated)}</p>}
+            {lastUpdated && <p className="text-xs text-[#69736A] mt-1">{anyStale ? "🟡" : "🟢"} Mis à jour à {fmtTime(lastUpdated)}{anyStale ? " · certains prix en différé" : ""}</p>}
           </div>
           <button onClick={logout} className="text-xs font-semibold text-[#8C968B] bg-[#141C17] border border-[#243029] px-3 py-2 rounded-xl active:scale-95 transition">Sortir</button>
         </div>
@@ -292,7 +302,12 @@ function Dashboard({ token }: { token: string }) {
             <div className="relative overflow-hidden rounded-3xl p-6 border border-[#1F2E25] bg-gradient-to-br from-[#18271E] to-[#101712]">
               <p className="text-[11px] tracking-[0.16em] uppercase text-[#5E7A68] font-semibold">Valeur du portefeuille</p>
               <p className="text-4xl font-semibold mt-2 tracking-tight tabular-nums">{fcfaShort(totalValue)} <span className="text-lg text-[#8C968B] font-medium">FCFA</span></p>
-              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold border mt-3 ${overallPl >= 0 ? BADGE.ok : BADGE.bad}`}>{overallPl >= 0 ? "▲" : "▼"} {signFcfa(overallPl)} · {overallPl >= 0 ? "+" : ""}{overallPlPct.toFixed(2)} %</span>
+              <div className="flex flex-wrap items-center gap-2 mt-3">
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold border ${overallPl >= 0 ? BADGE.ok : BADGE.bad}`}>{overallPl >= 0 ? "▲" : "▼"} {signFcfa(overallPl)} · {overallPl >= 0 ? "+" : ""}{overallPlPct.toFixed(2)} %</span>
+                {hasDayData && (
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${dayPlTotal >= 0 ? BADGE.ok : BADGE.bad}`}>Auj. {dayPlTotal >= 0 ? "▲" : "▼"} {signFcfa(dayPlTotal)} · {dayPlTotal >= 0 ? "+" : ""}{dayPlPctTotal.toFixed(2)} %</span>
+                )}
+              </div>
               {heroPath && (<svg viewBox={`0 0 ${HW} ${HH}`} preserveAspectRatio="none" className="w-full h-12 mt-4 block opacity-95"><path d={heroArea} fill={heroUp ? "rgba(54,194,125,.13)" : "rgba(232,112,93,.13)"} /><path d={heroPath} fill="none" stroke={heroUp ? "#36C27D" : "#E8705D"} strokeWidth="2" /></svg>)}
               <div className="grid grid-cols-3 gap-2 mt-5">
                 {[["Liquidités", cash], ["Investi", holdingsValue], ["Départ", starting]].map(([k, v]) => (
@@ -321,10 +336,20 @@ function Dashboard({ token }: { token: string }) {
                         return (
                           <div key={p.symbol} className="py-1">
                             <div className="flex items-center justify-between">
-                              <div><p className="font-semibold text-sm">{p.symbol}</p><p className="text-xs text-[#69736A] tabular-nums">{fcfa(p.currentValueUsd)} · {weight.toFixed(0)} %</p></div>
-                              <div className="text-right">
+                              <div className="min-w-0">
+                                <p className="font-semibold text-sm flex items-center gap-1.5">
+                                  {p.symbol}
+                                  {p.stale && p.priceAt && (<span className="text-[10px] font-semibold text-[#D8B26A] bg-[#241E10] border border-[#3A301A] rounded-full px-1.5 py-0.5">⏱ {fmtTimeIso(p.priceAt)}</span>)}
+                                </p>
+                                <p className="text-xs text-[#69736A] tabular-nums">{p.price.toFixed(2)} $ · achat {p.avgPrice.toFixed(2)} $</p>
+                                <p className="text-xs text-[#69736A] tabular-nums">{fcfa(p.currentValueUsd)} · {weight.toFixed(0)} %</p>
+                              </div>
+                              <div className="text-right flex-none">
                                 <p className={`text-sm font-semibold tabular-nums ${p.plUsd >= 0 ? "text-[#36C27D]" : "text-[#E8705D]"}`}>{p.plUsd >= 0 ? "▲" : "▼"} {p.plPct >= 0 ? "+" : ""}{p.plPct}%</p>
                                 <p className={`text-xs tabular-nums ${p.plUsd >= 0 ? "text-[#36C27D]" : "text-[#E8705D]"}`}>{signFcfa(p.plUsd)}</p>
+                                {p.dayPlPct !== null && (
+                                  <p className={`text-[11px] font-medium tabular-nums mt-0.5 ${p.dayPlPct >= 0 ? "text-[#5FD89B]" : "text-[#E8705D]"}`}>Auj. {p.dayPlPct >= 0 ? "▲ +" : "▼ "}{p.dayPlPct}%</p>
+                                )}
                               </div>
                             </div>
                             <div className="h-1.5 rounded-full bg-[#1E2822] mt-2 overflow-hidden"><div className="h-full rounded-full bg-[#2F7D55]" style={{ width: `${Math.max(weight, 3)}%` }} /></div>
@@ -334,13 +359,13 @@ function Dashboard({ token }: { token: string }) {
                                 <button onClick={() => doSell(p.symbol, 1)} disabled={selling} className="flex-1 py-2 rounded-xl bg-[#E8705D] text-[#1A0907] text-sm font-semibold active:scale-95 transition disabled:opacity-50">{selling ? "…" : "Vendre tout"}</button>
                                 <button onClick={() => setConfirmSell(null)} disabled={selling} className="flex-none py-2 px-3 rounded-xl bg-[#18211B] border border-[#243029] text-sm font-semibold active:scale-95 transition">Annuler</button>
                               </div>
-                            ) : (<button onClick={() => { setConfirmSell(p.symbol); setMessage(null); }} className="w-full mt-2 py-2 rounded-xl bg-[#18211B] border border-[#243029] text-sm font-semibold active:scale-95 transition">Vendre</button>)}
+                            ) : (<button onClick={() => { setConfirmSell(p.symbol); setMsgPos(null); }} className="w-full mt-2 py-2 rounded-xl bg-[#18211B] border border-[#243029] text-sm font-semibold active:scale-95 transition">Vendre</button>)}
                           </div>
                         );
                       })}
                     </div>
                   )}
-                  {message && (<p className={`mt-3 text-sm font-medium ${message.type === "ok" ? "text-[#36C27D]" : "text-[#E8705D]"}`}>{message.type === "ok" ? "✓ " : "⚠️ "}{message.text}</p>)}
+                  {msgPos && (<p className={`mt-3 text-sm font-medium ${msgPos.type === "ok" ? "text-[#36C27D]" : "text-[#E8705D]"}`}>{msgPos.type === "ok" ? "✓ " : "⚠️ "}{msgPos.text}</p>)}
                 </div>
                 <div className={card}>
                   <p className={`${lbl} mb-2`}>Diversification &amp; risque</p>
@@ -394,7 +419,7 @@ function Dashboard({ token }: { token: string }) {
                     <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="numeric" placeholder="Montant en FCFA" className={inp} />
                     <button onClick={handleBuy} disabled={buying} className={btnP}>{buying ? "Achat en cours…" : "Acheter (simulation)"}</button>
                   </div>
-                  {message && (<p className={`mt-3 text-sm font-medium ${message.type === "ok" ? "text-[#36C27D]" : "text-[#E8705D]"}`}>{message.type === "ok" ? "✓ " : "⚠️ "}{message.text}</p>)}
+                  {msgBuy && (<p className={`mt-3 text-sm font-medium ${msgBuy.type === "ok" ? "text-[#36C27D]" : "text-[#E8705D]"}`}>{msgBuy.type === "ok" ? "✓ " : "⚠️ "}{msgBuy.text}</p>)}
                 </div>
 
                 {spyPath && (<div className={card}><p className={`${lbl} mb-2`}>S&amp;P 500 · 90 jours</p><svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 80 }} preserveAspectRatio="none"><path d={spyPath} fill="none" stroke={spyUp ? "#36C27D" : "#E8705D"} strokeWidth="2" /></svg></div>)}
@@ -435,7 +460,7 @@ function Dashboard({ token }: { token: string }) {
 
             {tab === "histoire" && (
               <div className={card}>
-                <p className={`${lbl} mb-2`}>Historique &amp; gains</p>
+                <p className={`${lbl} mb-2`}>Journal &amp; gains</p>
                 <div className="rounded-2xl bg-[#111814] border border-[#243029] p-3 mb-3">
                   <p className="text-xs text-[#69736A]">Aujourd'hui</p>
                   <p className={`text-lg font-semibold tabular-nums ${!todayDay || todayDay.sells === 0 ? "text-[#8C968B]" : todayDay.realizedPl >= 0 ? "text-[#36C27D]" : "text-[#E8705D]"}`}>{!todayDay || todayDay.sells === 0 ? "Aucune vente aujourd'hui" : `${todayDay.realizedPl >= 0 ? "▲" : "▼"} ${signFcfa(todayDay.realizedPl)}`}</p>
