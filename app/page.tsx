@@ -27,6 +27,8 @@ const BADGE: Record<string, string> = {
 const TIER_BADGE: Record<string, string> = { "Prudent": BADGE.ok, "Équilibré": BADGE.warn, "Dynamique": BADGE.bad };
 const RISK_BADGE: Record<string, string> = { faible: BADGE.ok, modere: BADGE.warn, eleve: BADGE.bad };
 const dotColor = (t: string) => (t === "Prudent" ? "#7FB894" : t === "Équilibré" ? "#D8B26A" : "#E8705D");
+const ALLOC_COLORS = ["#36C27D", "#D8B26A", "#7FB894", "#E8705D", "#6FA8DC", "#A78BFA", "#E0A1C8"];
+const CASH_COLOR = "#2E3A33";
 
 function IconHome() { return (<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 11l9-7 9 7M5 10v10h5v-6h4v6h5V10" /></svg>); }
 function IconChart() { return (<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19V5M4 19h16M8 16v-4M12 16V8M16 16v-6" /></svg>); }
@@ -119,6 +121,7 @@ function Dashboard({ token }: { token: string }) {
 
   const [tab, setTab] = useState<"apercu" | "marche" | "ia" | "histoire">("apercu");
   const [marketFilter, setMarketFilter] = useState("Tous");
+  const [sortBy, setSortBy] = useState<"poids" | "jour">("poids");
 
   const [symbol, setSymbol] = useState("SPY");
   const [amount, setAmount] = useState("15000");
@@ -189,13 +192,28 @@ function Dashboard({ token }: { token: string }) {
   const today = new Date().toISOString().slice(0, 10);
   const todayDay = history?.daily.find((d) => d.date === today) ?? null;
 
-  // Variation du jour (portefeuille) : somme des variations vs clôture de la veille
   const dayItems = positions.filter((p) => p.dayPlUsd !== null);
   const dayPlTotal = dayItems.reduce((s, p) => s + (p.dayPlUsd ?? 0), 0);
   const dayBase = dayItems.reduce((s, p) => s + (p.prevClose ?? 0) * p.quantity, 0);
   const dayPlPctTotal = dayBase > 0 ? (dayPlTotal / dayBase) * 100 : 0;
   const hasDayData = dayItems.length > 0;
   const anyStale = positions.some((p) => p.stale);
+
+  // Répartition : positions triées par poids + liquidités
+  const allocSorted = [...positions].sort((a, b) => b.currentValueUsd - a.currentValueUsd);
+  const allocSegments = totalValue > 0
+    ? [
+        ...allocSorted.map((p, i) => ({ label: p.symbol, pct: (p.currentValueUsd / totalValue) * 100, color: ALLOC_COLORS[i % ALLOC_COLORS.length] })),
+        { label: "Liquidités", pct: (cash / totalValue) * 100, color: CASH_COLOR },
+      ].filter((s) => s.pct > 0.5)
+    : [];
+
+  // Tri de la liste des positions
+  const sortedPositions = [...positions].sort((a, b) =>
+    sortBy === "poids"
+      ? b.currentValueUsd - a.currentValueUsd
+      : (b.dayPlPct ?? -9999) - (a.dayPlPct ?? -9999)
+  );
 
   const concentration = positions.length && totalValue > 0 ? Math.max(...positions.map((p) => p.currentValueUsd / totalValue * 100)) : 0;
   let diversNote = "Aucune position pour l'instant — rien à risquer."; let diversTone = "muted";
@@ -328,10 +346,37 @@ function Dashboard({ token }: { token: string }) {
             {tab === "apercu" && (
               <>
                 <div className={card}>
-                  <p className={`${lbl} mb-3`}>Mes positions · poids dans le portefeuille</p>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className={lbl}>Mes positions</p>
+                    {positions.length > 1 && (
+                      <div className="flex gap-1 bg-[#111814] border border-[#243029] rounded-xl p-1">
+                        {(["poids", "jour"] as const).map((s) => (
+                          <button key={s} onClick={() => setSortBy(s)} className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg transition active:scale-95 ${sortBy === s ? "bg-[#36C27D] text-[#06140C]" : "text-[#8C968B]"}`}>{s === "poids" ? "Poids" : "Jour"}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {allocSegments.length > 0 && (
+                    <div className="mb-4">
+                      <div className="flex h-2.5 rounded-full overflow-hidden">
+                        {allocSegments.map((s) => (
+                          <div key={s.label} title={`${s.label} · ${s.pct.toFixed(0)} %`} style={{ width: `${s.pct}%`, background: s.color }} />
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+                        {allocSegments.map((s) => (
+                          <span key={s.label} className="inline-flex items-center gap-1.5 text-[11px] text-[#8C968B] tabular-nums">
+                            <span className="w-2 h-2 rounded-full" style={{ background: s.color }} />{s.label} {s.pct.toFixed(0)} %
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {positions.length === 0 ? (<p className="text-sm text-[#8C968B]">Aucune position. Va dans l'onglet Marché pour acheter (en simulation).</p>) : (
                     <div className="space-y-3">
-                      {positions.map((p) => {
+                      {sortedPositions.map((p) => {
                         const weight = totalValue > 0 ? (p.currentValueUsd / totalValue) * 100 : 0;
                         return (
                           <div key={p.symbol} className="py-1">
