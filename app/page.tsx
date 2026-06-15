@@ -320,11 +320,19 @@ function Dashboard({ token }: { token: string }) {
             <div className="relative overflow-hidden rounded-3xl p-6 border border-[#1F2E25] bg-gradient-to-br from-[#18271E] to-[#101712]">
               <p className="text-[11px] tracking-[0.16em] uppercase text-[#5E7A68] font-semibold">Valeur du portefeuille</p>
               <p className="text-4xl font-semibold mt-2 tracking-tight tabular-nums">{fcfaShort(totalValue)} <span className="text-lg text-[#8C968B] font-medium">FCFA</span></p>
-              <div className="flex flex-wrap items-center gap-2 mt-3">
-                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-semibold border ${overallPl >= 0 ? BADGE.ok : BADGE.bad}`}>{overallPl >= 0 ? "▲" : "▼"} {signFcfa(overallPl)} · {overallPl >= 0 ? "+" : ""}{overallPlPct.toFixed(2)} %</span>
-                {hasDayData && (
-                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${dayPlTotal >= 0 ? BADGE.ok : BADGE.bad}`}>Auj. {dayPlTotal >= 0 ? "▲" : "▼"} {signFcfa(dayPlTotal)} · {dayPlTotal >= 0 ? "+" : ""}{dayPlPctTotal.toFixed(2)} %</span>
-                )}
+              <div className="mt-4 space-y-2 border-t border-[#243029]/70 pt-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-[#8C968B]">Bénéfice du jour</span>
+                  <span className={`text-sm font-semibold tabular-nums ${dayPlTotal >= 0 ? "text-[#36C27D]" : "text-[#E8705D]"}`}>
+                    {hasDayData ? `${dayPlTotal >= 0 ? "▲" : "▼"} ${signFcfa(dayPlTotal)} · ${dayPlTotal >= 0 ? "+" : ""}${dayPlPctTotal.toFixed(2)} %` : "—"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-[#8C968B]">Bénéfice total</span>
+                  <span className={`text-sm font-semibold tabular-nums ${overallPl >= 0 ? "text-[#36C27D]" : "text-[#E8705D]"}`}>
+                    {overallPl >= 0 ? "▲" : "▼"} {signFcfa(overallPl)} · {overallPl >= 0 ? "+" : ""}{overallPlPct.toFixed(2)} %
+                  </span>
+                </div>
               </div>
               {heroPath && (<svg viewBox={`0 0 ${HW} ${HH}`} preserveAspectRatio="none" className="w-full h-12 mt-4 block opacity-95"><path d={heroArea} fill={heroUp ? "rgba(54,194,125,.13)" : "rgba(232,112,93,.13)"} /><path d={heroPath} fill="none" stroke={heroUp ? "#36C27D" : "#E8705D"} strokeWidth="2" /></svg>)}
               <div className="grid grid-cols-3 gap-2 mt-5">
