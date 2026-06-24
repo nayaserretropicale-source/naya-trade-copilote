@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getUserPortfolio, unauthorized } from "@/lib/auth";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
 const TIERS = ["Prudent", "Équilibré", "Dynamique"];
 
@@ -17,7 +18,7 @@ export async function POST(req: NextRequest) {
     if (!name) name = symbol;
 
     const token = process.env.FINNHUB_API_KEY;
-    const q = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${token}`, { cache: "no-store" });
+    const q = await fetchWithTimeout(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${token}`, { cache: "no-store" });
     const quote = await q.json();
     if (!quote.c) return NextResponse.json({ error: `Symbole « ${symbol} » introuvable. Vérifie l'orthographe (ex: AMZN, MSFT, GOOGL).` }, { status: 404 });
 

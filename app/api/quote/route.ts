@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
 export async function GET(req: NextRequest) {
   const symbol = req.nextUrl.searchParams.get("symbol")?.toUpperCase() ?? "AAPL";
@@ -9,7 +10,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${token}`,
       { cache: "no-store" }
     );

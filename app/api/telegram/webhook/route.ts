@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
 async function reply(chatId: number, text: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  try { await fetch(`https://api.telegram.org/bot${token}/sendMessage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: chatId, text }) }); } catch {}
+  try { await fetchWithTimeout(`https://api.telegram.org/bot${token}/sendMessage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: chatId, text }) }); } catch {}
 }
 
 export async function POST(req: NextRequest) {

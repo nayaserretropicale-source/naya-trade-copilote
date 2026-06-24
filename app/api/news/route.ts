@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getUserPortfolio, unauthorized } from "@/lib/auth";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
 const FINNHUB = "https://finnhub.io/api/v1";
 type NewsItem = { headline: string; source: string; url: string; datetime: number };
@@ -23,18 +24,18 @@ export async function GET(req: NextRequest) {
     const t = new Date().toISOString().slice(0, 10);
     const f = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString().slice(0, 10);
     try {
-      const r = await fetch(`${FINNHUB}/company-news?symbol=${symbol}&from=${f}&to=${t}&token=${token}`, { cache: "no-store" });
+      const r = await fetchWithTimeout(`${FINNHUB}/company-news?symbol=${symbol}&from=${f}&to=${t}&token=${token}`, { cache: "no-store" });
       return NextResponse.json({ symbol, news: cleanNews(await r.json(), 8) });
     } catch { return NextResponse.json({ symbol, news: [] }); }
   }
 
   let general: NewsItem[] = [];
-  try { const r = await fetch(`${FINNHUB}/news?category=general&token=${token}`, { cache: "no-store" }); general = cleanNews(await r.json(), 10); } catch {}
+  try { const r = await fetchWithTimeout(`${FINNHUB}/news?category=general&token=${token}`, { cache: "no-store" }); general = cleanNews(await r.json(), 10); } catch {}
 
   const { data: wl } = await supabaseAdmin.from("watchlist").select("symbol,name").eq("portfolio_id", auth.portfolio.id);
   const movers = await Promise.all((wl ?? []).map(async (m) => {
     let dp: number | null = null;
-    try { const q = await fetch(`${FINNHUB}/quote?symbol=${m.symbol}&token=${token}`, { cache: "no-store" }); const d = await q.json(); if (typeof d.dp === "number" && Number.isFinite(d.dp)) dp = Number(d.dp.toFixed(2)); } catch {}
+    try { const q = await fetchWithTimeout(`${FINNHUB}/quote?symbol=${m.symbol}&token=${token}`, { cache: "no-store" }); const d = await q.json(); if (typeof d.dp === "number" && Number.isFinite(d.dp)) dp = Number(d.dp.toFixed(2)); } catch {}
     return { symbol: m.symbol, name: m.name, changePct: dp };
   }));
   const valid = movers.filter((m) => m.changePct !== null) as { symbol: string; name: string; changePct: number }[];

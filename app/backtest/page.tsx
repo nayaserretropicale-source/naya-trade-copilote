@@ -37,7 +37,12 @@ export default function Backtest() {
     finally { setLoading(false); }
   }
 
-  useEffect(() => { document.body.style.backgroundColor = "#0C120E"; run(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => {
+    document.body.style.backgroundColor = "#0C120E";
+    const id = setTimeout(() => run(), 0);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const W = 600, H = 200;
   let stratPath = "", holdPath = "";
@@ -62,7 +67,7 @@ export default function Backtest() {
         <div>
           <p className={lbl}>Naya · Copilote Marché</p>
           <h1 className="text-2xl font-semibold mt-1 tracking-tight">Backtest — croisement de moyennes</h1>
-          <p className="text-sm text-[#8C968B] mt-2">Teste la stratégie sur ~2 ans d'historique réel, sans risque.</p>
+          <p className="text-sm text-[#8C968B] mt-2">Teste la stratégie sur ~2 ans d&apos;historique réel, sans risque.</p>
         </div>
 
         <div className={`${card} space-y-3`}>
@@ -75,7 +80,7 @@ export default function Backtest() {
           {error && <p className="text-[#E8705D] text-sm font-medium">⚠️ {error}</p>}
         </div>
 
-        {loading && !result && <p className="text-[#69736A] text-sm">Chargement de l'exemple…</p>}
+        {loading && !result && <p className="text-[#69736A] text-sm">Chargement de l&apos;exemple…</p>}
 
         {result && (
           <>
@@ -101,7 +106,7 @@ export default function Backtest() {
               <Metric label="Verdict" value={beats ? "Bat le marché" : "Sous le marché"} good={beats} />
             </div>
 
-            <p className="text-xs text-[#69736A] leading-relaxed">⚠️ Backtest indicatif : sans frais ni slippage, sur une seule période. Le passé ne garantit pas l'avenir. Outil d'apprentissage, pas une promesse.</p>
+            <p className="text-xs text-[#69736A] leading-relaxed">⚠️ Backtest indicatif : sans frais ni slippage, sur une seule période. Le passé ne garantit pas l&apos;avenir. Outil d&apos;apprentissage, pas une promesse.</p>
           </>
         )}
       </div>

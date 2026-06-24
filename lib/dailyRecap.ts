@@ -1,4 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
+import { replayCostBasis } from "@/lib/costBasis";
 
 export async function buildDailyRecap(portfolioId: string) {
   const { data: portfolio } = await supabaseAdmin.from("portfolios").select("*").eq("id", portfolioId).single();
@@ -13,28 +15,20 @@ export async function buildDailyRecap(portfolioId: string) {
   let holdingsValue = 0;
   for (const h of holdings ?? []) {
     let price = h.avg_price;
-    try { const q = await fetch(`https://finnhub.io/api/v1/quote?symbol=${h.symbol}&token=${token}`, { cache: "no-store" }); const d = await q.json(); if (d.c) price = d.c; } catch {}
+    try { const q = await fetchWithTimeout(`https://finnhub.io/api/v1/quote?symbol=${h.symbol}&token=${token}`, { cache: "no-store" }); const d = await q.json(); if (d.c) price = d.c; } catch {}
     holdingsValue += h.quantity * price;
   }
   const totalValue = portfolio.cash_balance + holdingsValue;
   const overallPl = totalValue - portfolio.starting_capital;
 
-  const cost: Record<string, { qty: number; avg: number }> = {};
   const today = new Date().toISOString().slice(0, 10);
+  const events = replayCostBasis(txs ?? []);
   let todayRealized = 0, todaySells = 0, todayBuys = 0;
-  for (const tx of txs ?? []) {
-    const c = cost[tx.symbol] || { qty: 0, avg: 0 };
-    const isToday = String(tx.created_at).slice(0, 10) === today;
-    if (tx.side === "buy") {
-      const nq = c.qty + tx.quantity;
-      cost[tx.symbol] = { qty: nq, avg: nq > 0 ? (c.qty * c.avg + tx.quantity * tx.price) / nq : tx.price };
-      if (isToday) todayBuys++;
-    } else {
-      const avg = c.qty > 0 ? c.avg : tx.price;
-      const pl = (tx.price - avg) * tx.quantity;
-      cost[tx.symbol] = { qty: c.qty - tx.quantity, avg };
-      if (isToday) { todayRealized += pl; todaySells++; }
-    }
+  for (const { tx, realizedPl } of events) {
+    const isToday = String((tx as { created_at: string }).created_at).slice(0, 10) === today;
+    if (!isToday) continue;
+    if (tx.side === "buy") todayBuys++;
+    else { todayRealized += realizedPl ?? 0; todaySells++; }
   }
 
   const fcfa = (usd: number) => Math.round(usd * rate).toLocaleString("fr-FR") + " FCFA";

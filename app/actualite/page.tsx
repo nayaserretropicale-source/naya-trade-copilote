@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 type News = { headline: string; source: string; url: string; datetime: number };
@@ -54,7 +55,12 @@ export default function Actualite() {
     try { const res = await authedFetch("/api/news"); const data = await res.json(); if (data.error) throw new Error(data.error); setGeneral(data.general ?? []); setUp(data.up ?? []); setDown(data.down ?? []); setWatchlist(data.watchlist ?? []); }
     catch (e) { setErr(e instanceof Error ? e.message : "Erreur"); } finally { setLoading(false); }
   }
-  useEffect(() => { if (token) load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [token]);
+  useEffect(() => {
+    if (!token) return;
+    const id = setTimeout(() => load(), 0);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   async function genSummary() { setGenSum(true); setSummary(null); try { const res = await authedFetch("/api/news/summary", { method: "POST" }); const data = await res.json(); if (data.error) throw new Error(data.error); setSummary(data.summary); } catch (e) { setSummary(e instanceof Error ? e.message : "Erreur"); } finally { setGenSum(false); } }
   async function suggestMarkets() { setLoadingMS(true); setMsNote(null); setAskedMS(true); try { const res = await authedFetch("/api/watchlist/suggest", { method: "POST" }); const data = await res.json(); if (data.error) throw new Error(data.error); setMarketSugs(data.suggestions ?? []); } catch (e) { setMsNote(e instanceof Error ? e.message : "Erreur"); } finally { setLoadingMS(false); } }
@@ -68,7 +74,7 @@ export default function Actualite() {
   const btnG = "w-full py-3 rounded-2xl bg-[#18211B] border border-[#243029] text-[#ECF0EA] font-semibold active:scale-[0.99] transition disabled:opacity-50";
 
   if (!ready) return <main className="min-h-screen bg-[#0C120E] flex items-center justify-center"><p className="text-[#69736A]">Chargement…</p></main>;
-  if (!token) return <main className="min-h-screen bg-[#0C120E] flex items-center justify-center p-6"><div className="text-center"><p className="text-[#8C968B] mb-3">Connecte-toi d'abord.</p><a href="/" className="text-[#36C27D] font-semibold underline">Aller à la connexion</a></div></main>;
+  if (!token) return <main className="min-h-screen bg-[#0C120E] flex items-center justify-center p-6"><div className="text-center"><p className="text-[#8C968B] mb-3">Connecte-toi d&apos;abord.</p><Link href="/" className="text-[#36C27D] font-semibold underline">Aller à la connexion</Link></div></main>;
 
   return (
     <main className="min-h-screen bg-[#0C120E] text-[#ECF0EA] flex justify-center px-4 pt-6 pb-28">
@@ -84,14 +90,14 @@ export default function Actualite() {
         {!loading && (
           <>
             <div className={card}>
-              <p className={`${lbl} mb-2`}>Le point marché de l'IA</p>
-              {summary ? <p className="text-sm text-[#C2CABF] leading-relaxed whitespace-pre-line">{summary}</p> : <p className="text-sm text-[#8C968B]">Un résumé neutre de l'actu du jour, pour comprendre — jamais pour te dire quoi acheter.</p>}
+              <p className={`${lbl} mb-2`}>Le point marché de l&apos;IA</p>
+              {summary ? <p className="text-sm text-[#C2CABF] leading-relaxed whitespace-pre-line">{summary}</p> : <p className="text-sm text-[#8C968B]">Un résumé neutre de l&apos;actu du jour, pour comprendre — jamais pour te dire quoi acheter.</p>}
               <button onClick={genSummary} disabled={genSum} className={`${btnP} mt-3`}>{genSum ? "L'IA lit l'actu…" : "Générer le point marché"}</button>
             </div>
 
             <div className={card}>
               <p className={`${lbl} mb-2`}>Découvrir des marchés (IA)</p>
-              <p className="text-sm text-[#8C968B] mb-3">L'IA repère les trous de ta diversification et te propose quoi ajouter (valeurs US vérifiées, pas de prédiction).</p>
+              <p className="text-sm text-[#8C968B] mb-3">L&apos;IA repère les trous de ta diversification et te propose quoi ajouter (valeurs US vérifiées, pas de prédiction).</p>
               {marketSugs.length > 0 && (
                 <div className="space-y-3 mb-3">{marketSugs.map((s) => (
                   <div key={s.symbol} className="border border-[#243029] rounded-2xl p-3">
@@ -108,7 +114,7 @@ export default function Actualite() {
 
             <div className={card}>
               <p className={`${lbl} mb-3`}>Tendances du jour (ta liste)</p>
-              {up.length === 0 && down.length === 0 ? <p className="text-sm text-[#8C968B]">Pas de données de variation pour l'instant.</p> : (
+              {up.length === 0 && down.length === 0 ? <p className="text-sm text-[#8C968B]">Pas de données de variation pour l&apos;instant.</p> : (
                 <div className="grid grid-cols-2 gap-3">
                   <div><p className="text-xs font-semibold text-[#36C27D] mb-1">▲ En hausse</p>{up.length === 0 ? <p className="text-xs text-[#69736A]">—</p> : up.map((m) => (<div key={m.symbol} className="flex items-center justify-between py-1 text-sm"><span className="truncate pr-2">{m.name}</span><span className="font-semibold text-[#36C27D] tabular-nums">+{m.changePct}%</span></div>))}</div>
                   <div><p className="text-xs font-semibold text-[#E8705D] mb-1">▼ En baisse</p>{down.length === 0 ? <p className="text-xs text-[#69736A]">—</p> : down.map((m) => (<div key={m.symbol} className="flex items-center justify-between py-1 text-sm"><span className="truncate pr-2">{m.name}</span><span className="font-semibold text-[#E8705D] tabular-nums">{m.changePct}%</span></div>))}</div>
@@ -133,7 +139,7 @@ export default function Actualite() {
               )}
             </div>
 
-            <p className="text-xs text-[#69736A] text-center">L'actualité aide à comprendre, pas à deviner. Reste prudent : diversifie, agis peu, vois loin.</p>
+            <p className="text-xs text-[#69736A] text-center">L&apos;actualité aide à comprendre, pas à deviner. Reste prudent : diversifie, agis peu, vois loin.</p>
           </>
         )}
       </div>

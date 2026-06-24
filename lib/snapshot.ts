@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
 export async function recordSnapshot(portfolioId: string) {
   const { data: portfolio } = await supabaseAdmin.from("portfolios").select("*").eq("id", portfolioId).single();
@@ -8,7 +9,7 @@ export async function recordSnapshot(portfolioId: string) {
   let holdingsValue = 0;
   for (const h of holdings ?? []) {
     let price = h.avg_price;
-    try { const q = await fetch(`https://finnhub.io/api/v1/quote?symbol=${h.symbol}&token=${token}`, { cache: "no-store" }); const d = await q.json(); if (d.c) price = d.c; } catch {}
+    try { const q = await fetchWithTimeout(`https://finnhub.io/api/v1/quote?symbol=${h.symbol}&token=${token}`, { cache: "no-store" }); const d = await q.json(); if (d.c) price = d.c; } catch {}
     holdingsValue += h.quantity * price;
   }
   const value = portfolio.cash_balance + holdingsValue;

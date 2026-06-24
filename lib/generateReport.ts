@@ -1,18 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "@/lib/supabase";
-
-function isOverloaded(e: unknown): boolean {
-  const status = (e as { status?: number })?.status;
-  return status === 529 || status === 503 || status === 500 || /overload/i.test(String((e as Error)?.message));
-}
-async function callClaudeWithRetry(anthropic: Anthropic, params: Anthropic.MessageCreateParams, tries = 4): Promise<Anthropic.Message> {
-  let lastErr: unknown;
-  for (let i = 0; i < tries; i++) {
-    try { return await anthropic.messages.create(params) as Anthropic.Message; }
-    catch (e) { lastErr = e; if (isOverloaded(e) && i < tries - 1) { await new Promise((r) => setTimeout(r, 600 * (i + 1))); continue; } throw e; }
-  }
-  throw lastErr;
-}
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
+import { callClaudeWithRetry } from "@/lib/anthropicRetry";
 
 export async function generateReport(portfolioId: string) {
   const { data: portfolio } = await supabaseAdmin.from("portfolios").select("*").eq("id", portfolioId).single();
@@ -24,16 +13,23 @@ export async function generateReport(portfolioId: string) {
   const token = process.env.FINNHUB_API_KEY;
 
   let holdingsValue = 0;
+  let dayChangeUsd = 0, dayBaseUsd = 0;
   const posVals: { symbol: string; value: number; plPct: number }[] = [];
   for (const h of holdings ?? []) {
     let price = h.avg_price;
-    try { const q = await fetch(`https://finnhub.io/api/v1/quote?symbol=${h.symbol}&token=${token}`, { cache: "no-store" }); const d = await q.json(); if (d.c) price = d.c; } catch {}
+    try {
+      const q = await fetchWithTimeout(`https://finnhub.io/api/v1/quote?symbol=${h.symbol}&token=${token}`, { cache: "no-store" });
+      const d = await q.json();
+      if (d.c) price = d.c;
+      if (typeof d.pc === "number" && d.pc > 0) { dayChangeUsd += h.quantity * (price - d.pc); dayBaseUsd += h.quantity * d.pc; }
+    } catch {}
     const value = h.quantity * price; const cost = h.quantity * h.avg_price;
     holdingsValue += value;
     posVals.push({ symbol: h.symbol, value, plPct: cost > 0 ? (value - cost) / cost * 100 : 0 });
   }
   const totalValue = portfolio.cash_balance + holdingsValue;
   const overallPl = totalValue - portfolio.starting_capital;
+  const dayChangePct = dayBaseUsd > 0 ? (dayChangeUsd / dayBaseUsd) * 100 : 0;
   const positions = posVals.map((p) => ({ symbol: p.symbol, part_pct: totalValue > 0 ? Number((p.value / totalValue * 100).toFixed(0)) : 0, gain_perte_pct: Number(p.plPct.toFixed(0)) }));
 
   const context = {
@@ -61,7 +57,7 @@ summary: 3 a 5 phrases.`;
   const risk_level = ["faible", "modere", "eleve"].includes(String(parsed.risk_level)) ? String(parsed.risk_level) : "faible";
 
   const report_date = new Date().toISOString().slice(0, 10);
-  await supabaseAdmin.from("reports").upsert({ portfolio_id: portfolio.id, report_date, title, summary, risk_level, portfolio_value: totalValue, day_change_pct: 0 }, { onConflict: "portfolio_id,report_date" });
+  await supabaseAdmin.from("reports").upsert({ portfolio_id: portfolio.id, report_date, title, summary, risk_level, portfolio_value: totalValue, day_change_pct: Number(dayChangePct.toFixed(2)) }, { onConflict: "portfolio_id,report_date" });
 
   return { title, summary, risk_level };
 }

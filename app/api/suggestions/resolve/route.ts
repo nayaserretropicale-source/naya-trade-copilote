@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getUserPortfolio, unauthorized } from "@/lib/auth";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,46 +25,58 @@ export async function POST(req: NextRequest) {
     if (sug.action === "buy" && sug.amount) {
       const maxPerTrade = settings?.max_per_trade ?? 50;
       if (settings?.agents_paused) return NextResponse.json({ error: "Coupe-circuit actif" }, { status: 403 });
-      let amountUsd = Number(sug.amount);
-      if (amountUsd > maxPerTrade) amountUsd = maxPerTrade;
-      if (amountUsd > portfolio.cash_balance) return NextResponse.json({ error: "Liquidites insuffisantes" }, { status: 400 });
-      const q = await fetch(`https://finnhub.io/api/v1/quote?symbol=${sug.symbol}&token=${token}`, { cache: "no-store" });
+      const amountUsd = Math.min(Number(sug.amount), maxPerTrade);
+      const q = await fetchWithTimeout(`https://finnhub.io/api/v1/quote?symbol=${sug.symbol}&token=${token}`, { cache: "no-store" });
       const quote = await q.json();
       const price = quote.c;
       if (!price) return NextResponse.json({ error: "Prix indisponible" }, { status: 404 });
       const quantity = amountUsd / price;
-      await supabaseAdmin.from("transactions").insert({ portfolio_id: portfolio.id, symbol: sug.symbol, side: "buy", quantity, price, total: amountUsd, source: "suggestion" });
-      const { data: existing } = await supabaseAdmin.from("holdings").select("*").eq("portfolio_id", portfolio.id).eq("symbol", sug.symbol).maybeSingle();
-      if (existing) {
-        const newQty = Number(existing.quantity) + quantity;
-        const newAvg = (existing.quantity * existing.avg_price + quantity * price) / newQty;
-        await supabaseAdmin.from("holdings").update({ quantity: newQty, avg_price: newAvg, updated_at: new Date().toISOString() }).eq("id", existing.id);
-      } else {
-        await supabaseAdmin.from("holdings").insert({ portfolio_id: portfolio.id, symbol: sug.symbol, name: sug.name ?? sug.symbol, quantity, avg_price: price });
+
+      const { error } = await supabaseAdmin.rpc("execute_buy", {
+        p_portfolio_id: portfolio.id,
+        p_symbol: sug.symbol,
+        p_name: sug.name ?? sug.symbol,
+        p_quantity: quantity,
+        p_price: price,
+        p_amount: amountUsd,
+        p_source: "suggestion",
+        p_reason: null,
+      });
+      if (error) {
+        if (error.message?.includes("insufficient_cash")) return NextResponse.json({ error: "Liquidites insuffisantes" }, { status: 400 });
+        throw new Error(error.message);
       }
-      await supabaseAdmin.from("portfolios").update({ cash_balance: portfolio.cash_balance - amountUsd }).eq("id", portfolio.id);
       await supabaseAdmin.from("suggestions").update({ status: "validated", resolved_at: new Date().toISOString() }).eq("id", id);
       return NextResponse.json({ ok: true, executed: true });
     }
 
     if (sug.action === "sell") {
       const frac = sug.fraction && sug.fraction > 0 && sug.fraction <= 1 ? Number(sug.fraction) : 1;
-      const { data: holding } = await supabaseAdmin.from("holdings").select("*").eq("portfolio_id", portfolio.id).eq("symbol", sug.symbol).maybeSingle();
+      const { data: holding } = await supabaseAdmin.from("holdings").select("id,quantity").eq("portfolio_id", portfolio.id).eq("symbol", sug.symbol).maybeSingle();
       if (!holding || holding.quantity <= 0) {
         await supabaseAdmin.from("suggestions").update({ status: "validated", resolved_at: new Date().toISOString() }).eq("id", id);
         return NextResponse.json({ ok: true, executed: false });
       }
-      const q = await fetch(`https://finnhub.io/api/v1/quote?symbol=${sug.symbol}&token=${token}`, { cache: "no-store" });
+      const q = await fetchWithTimeout(`https://finnhub.io/api/v1/quote?symbol=${sug.symbol}&token=${token}`, { cache: "no-store" });
       const quote = await q.json();
       const price = quote.c;
       if (!price) return NextResponse.json({ error: "Prix indisponible" }, { status: 404 });
-      const sellQty = holding.quantity * frac;
-      const remaining = holding.quantity - sellQty;
-      const proceeds = sellQty * price;
-      await supabaseAdmin.from("transactions").insert({ portfolio_id: portfolio.id, symbol: sug.symbol, side: "sell", quantity: sellQty, price, total: proceeds, source: "suggestion" });
-      if (remaining <= 0.000001) await supabaseAdmin.from("holdings").delete().eq("id", holding.id);
-      else await supabaseAdmin.from("holdings").update({ quantity: remaining, updated_at: new Date().toISOString() }).eq("id", holding.id);
-      await supabaseAdmin.from("portfolios").update({ cash_balance: portfolio.cash_balance + proceeds }).eq("id", portfolio.id);
+
+      const { error } = await supabaseAdmin.rpc("execute_sell", {
+        p_portfolio_id: portfolio.id,
+        p_symbol: sug.symbol,
+        p_fraction: frac,
+        p_price: price,
+        p_source: "suggestion",
+        p_reason: null,
+      });
+      if (error) {
+        if (error.message?.includes("position_not_found")) {
+          await supabaseAdmin.from("suggestions").update({ status: "validated", resolved_at: new Date().toISOString() }).eq("id", id);
+          return NextResponse.json({ ok: true, executed: false });
+        }
+        throw new Error(error.message);
+      }
       await supabaseAdmin.from("suggestions").update({ status: "validated", resolved_at: new Date().toISOString() }).eq("id", id);
       return NextResponse.json({ ok: true, executed: true });
     }

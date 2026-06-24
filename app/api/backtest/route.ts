@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
 type Bar = { date: string; close: number };
 
@@ -16,14 +17,14 @@ export async function GET(req: NextRequest) {
 
   try {
     const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=520&apikey=${key}`;
-    const res = await fetch(url, { cache: "no-store" });
+    const res = await fetchWithTimeout(url, { cache: "no-store" });
     const data = await res.json();
 
     if (data.status === "error" || !Array.isArray(data.values)) {
       return NextResponse.json({ error: data.message || "Symbole introuvable ou donnees indisponibles." }, { status: 404 });
     }
 
-    let bars: Bar[] = data.values
+    const bars: Bar[] = data.values
       .map((v: { datetime: string; close: string }) => ({ date: v.datetime, close: parseFloat(v.close) }))
       .filter((b: Bar) => Number.isFinite(b.close))
       .reverse();

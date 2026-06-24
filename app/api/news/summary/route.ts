@@ -1,19 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getUserPortfolio, unauthorized } from "@/lib/auth";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
+import { callClaudeWithRetry, isClaudeOverloaded } from "@/lib/anthropicRetry";
 
 const FINNHUB = "https://finnhub.io/api/v1";
 export const maxDuration = 60;
-
-function isOverloaded(e: unknown): boolean {
-  const s = (e as { status?: number })?.status;
-  return s === 529 || s === 503 || s === 500 || /overload/i.test(String((e as Error)?.message));
-}
-async function callClaudeWithRetry(a: Anthropic, p: Anthropic.MessageCreateParams, tries = 4): Promise<Anthropic.Message> {
-  let last: unknown;
-  for (let i = 0; i < tries; i++) { try { return await a.messages.create(p) as Anthropic.Message; } catch (e) { last = e; if (isOverloaded(e) && i < tries - 1) { await new Promise((r) => setTimeout(r, 600 * (i + 1))); continue; } throw e; } }
-  throw last;
-}
 
 export async function POST(req: NextRequest) {
   if (!process.env.ANTHROPIC_API_KEY) return NextResponse.json({ error: "Cle Anthropic manquante" }, { status: 500 });
@@ -23,7 +15,7 @@ export async function POST(req: NextRequest) {
     const token = process.env.FINNHUB_API_KEY;
     let headlines: string[] = [];
     try {
-      const r = await fetch(`${FINNHUB}/news?category=general&token=${token}`, { cache: "no-store" });
+      const r = await fetchWithTimeout(`${FINNHUB}/news?category=general&token=${token}`, { cache: "no-store" });
       const data = await r.json();
       const list = Array.isArray(data) ? (data as Array<Record<string, unknown>>) : [];
       headlines = list.filter((n) => n && n.headline).slice(0, 12).map((n) => `- ${String(n.headline)}`);
@@ -42,8 +34,7 @@ Regles:
     const summary = msg.content.map((b) => (b.type === "text" ? b.text : "")).join("").trim();
     return NextResponse.json({ summary });
   } catch (e) {
-    const status = (e as { status?: number })?.status;
-    if (status === 529 || status === 503 || /overload/i.test(String((e as Error)?.message))) return NextResponse.json({ error: "L'IA est très sollicitée. Réessaie dans quelques secondes 🙂" }, { status: 503 });
+    if (isClaudeOverloaded(e)) return NextResponse.json({ error: "L'IA est très sollicitée. Réessaie dans quelques secondes 🙂" }, { status: 503 });
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 }

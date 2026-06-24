@@ -1,9 +1,11 @@
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
+
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 export async function sendTelegramTo(chatId: string, text: string) {
   if (!TOKEN || !chatId) return;
   try {
-    await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
+    await fetchWithTimeout(`https://api.telegram.org/bot${TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId, text }),

@@ -1,18 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "@/lib/supabase";
-
-function isOverloaded(e: unknown): boolean {
-  const status = (e as { status?: number })?.status;
-  return status === 529 || status === 503 || status === 500 || /overload/i.test(String((e as Error)?.message));
-}
-async function callClaudeWithRetry(anthropic: Anthropic, params: Anthropic.MessageCreateParams, tries = 4): Promise<Anthropic.Message> {
-  let lastErr: unknown;
-  for (let i = 0; i < tries; i++) {
-    try { return await anthropic.messages.create(params) as Anthropic.Message; }
-    catch (e) { lastErr = e; if (isOverloaded(e) && i < tries - 1) { await new Promise((r) => setTimeout(r, 600 * (i + 1))); continue; } throw e; }
-  }
-  throw lastErr;
-}
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
+import { callClaudeWithRetry } from "@/lib/anthropicRetry";
+import { replayCostBasis } from "@/lib/costBasis";
 
 // Quotes en parallèle avec filet de sécurité price_cache
 async function getPrices(symbols: string[]): Promise<Map<string, number>> {
@@ -29,7 +19,7 @@ async function getPrices(symbols: string[]): Promise<Map<string, number>> {
 
   await Promise.all(symbols.map(async (symbol) => {
     try {
-      const q = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${token}`, { cache: "no-store" });
+      const q = await fetchWithTimeout(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${token}`, { cache: "no-store" });
       const d = await q.json();
       if (d && typeof d.c === "number" && d.c > 0) {
         prices.set(symbol, d.c);
@@ -74,20 +64,13 @@ export async function generateWeeklyReview(portfolioId: string) {
   const overallPl = totalValue - portfolio.starting_capital;
 
   const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
-  const cost: Record<string, { qty: number; avg: number }> = {};
+  const events = replayCostBasis(txs ?? []);
   let weekRealized = 0, weekBuys = 0, weekSells = 0;
-  for (const tx of txs ?? []) {
-    const inWeek = new Date(tx.created_at).getTime() >= weekAgo;
-    const c = cost[tx.symbol] || { qty: 0, avg: 0 };
-    if (tx.side === "buy") {
-      const nq = c.qty + tx.quantity;
-      cost[tx.symbol] = { qty: nq, avg: nq > 0 ? (c.qty * c.avg + tx.quantity * tx.price) / nq : tx.price };
-      if (inWeek) weekBuys++;
-    } else {
-      const avg = c.qty > 0 ? c.avg : tx.price;
-      if (inWeek) { weekRealized += (tx.price - avg) * tx.quantity; weekSells++; }
-      cost[tx.symbol] = { qty: c.qty - tx.quantity, avg };
-    }
+  for (const { tx, realizedPl } of events) {
+    const inWeek = new Date((tx as { created_at: string }).created_at).getTime() >= weekAgo;
+    if (!inWeek) continue;
+    if (tx.side === "buy") weekBuys++;
+    else { weekRealized += realizedPl ?? 0; weekSells++; }
   }
 
   const concentration = (holdings ?? []).length && totalValue > 0

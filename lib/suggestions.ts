@@ -1,5 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "@/lib/supabase";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
+import { callClaudeWithRetry } from "@/lib/anthropicRetry";
 
 const TD = "https://api.twelvedata.com";
 const FINNHUB = "https://finnhub.io/api/v1";
@@ -11,19 +13,6 @@ const MARKETS = [
   { symbol: "QQQ",  name: "Nasdaq (tech)",  tier: "Dynamique" },
   { symbol: "IBIT", name: "Bitcoin (ETF)",  tier: "Dynamique" },
 ];
-
-function isOverloaded(e: unknown): boolean {
-  const status = (e as { status?: number })?.status;
-  return status === 529 || status === 503 || status === 500 || /overload/i.test(String((e as Error)?.message));
-}
-async function callClaudeWithRetry(anthropic: Anthropic, params: Anthropic.MessageCreateParams, tries = 4): Promise<Anthropic.Message> {
-  let lastErr: unknown;
-  for (let i = 0; i < tries; i++) {
-    try { return await anthropic.messages.create(params) as Anthropic.Message; }
-    catch (e) { lastErr = e; if (isOverloaded(e) && i < tries - 1) { await new Promise((r) => setTimeout(r, 600 * (i + 1))); continue; } throw e; }
-  }
-  throw lastErr;
-}
 
 // Quotes en parallèle + filet de sécurité price_cache (prix + variation du jour)
 async function getQuotes(symbols: string[]): Promise<Map<string, { price: number; dayPct: number | null }>> {
@@ -40,7 +29,7 @@ async function getQuotes(symbols: string[]): Promise<Map<string, { price: number
 
   await Promise.all(symbols.map(async (symbol) => {
     try {
-      const q = await fetch(`${FINNHUB}/quote?symbol=${symbol}&token=${token}`, { cache: "no-store" });
+      const q = await fetchWithTimeout(`${FINNHUB}/quote?symbol=${symbol}&token=${token}`, { cache: "no-store" });
       const d = await q.json();
       if (d && typeof d.c === "number" && d.c > 0) {
         const dayPct = typeof d.dp === "number" ? Number(d.dp.toFixed(2)) : null;
@@ -105,7 +94,7 @@ export async function generateSuggestions(portfolioId: string) {
   const symbols = MARKETS.map((m) => m.symbol).join(",");
   let marketInfo = MARKETS.map((m) => ({ ...m, changePct: null as number | null }));
   try {
-    const r = await fetch(`${TD}/quote?symbol=${symbols}&apikey=${key}`, { cache: "no-store" });
+    const r = await fetchWithTimeout(`${TD}/quote?symbol=${symbols}&apikey=${key}`, { cache: "no-store" });
     const q = await r.json();
     marketInfo = MARKETS.map((m) => {
       const d = q[m.symbol] ?? (q.symbol === m.symbol ? q : null);

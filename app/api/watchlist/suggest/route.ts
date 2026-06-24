@@ -2,20 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getUserPortfolio, unauthorized } from "@/lib/auth";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
+import { callClaudeWithRetry, isClaudeOverloaded } from "@/lib/anthropicRetry";
 
 const FINNHUB = "https://finnhub.io/api/v1";
 const TIERS = ["Prudent", "Équilibré", "Dynamique"];
 export const maxDuration = 60;
-
-function isOverloaded(e: unknown): boolean {
-  const s = (e as { status?: number })?.status;
-  return s === 529 || s === 503 || s === 500 || /overload/i.test(String((e as Error)?.message));
-}
-async function callClaudeWithRetry(a: Anthropic, p: Anthropic.MessageCreateParams, tries = 4): Promise<Anthropic.Message> {
-  let last: unknown;
-  for (let i = 0; i < tries; i++) { try { return await a.messages.create(p) as Anthropic.Message; } catch (e) { last = e; if (isOverloaded(e) && i < tries - 1) { await new Promise((r) => setTimeout(r, 600 * (i + 1))); continue; } throw e; } }
-  throw last;
-}
 
 export async function POST(req: NextRequest) {
   if (!process.env.ANTHROPIC_API_KEY) return NextResponse.json({ error: "Cle Anthropic manquante" }, { status: 500 });
@@ -52,15 +44,14 @@ reason: 1-2 phrases en francais simple, chaleureux, tutoiement, expliquant POURQ
       const name = s.name ? String(s.name).slice(0, 80) : symbol;
       const reason = String(s.reason || "").slice(0, 400);
       let ok = false;
-      try { const q = await fetch(`${FINNHUB}/quote?symbol=${symbol}&token=${token}`, { cache: "no-store" }); const d = await q.json(); if (d && typeof d.c === "number" && d.c > 0) ok = true; } catch {}
+      try { const q = await fetchWithTimeout(`${FINNHUB}/quote?symbol=${symbol}&token=${token}`, { cache: "no-store" }); const d = await q.json(); if (d && typeof d.c === "number" && d.c > 0) ok = true; } catch {}
       if (ok) out.push({ symbol, name, tier, reason });
       if (out.length >= 4) break;
     }
 
     return NextResponse.json({ suggestions: out });
   } catch (e) {
-    const status = (e as { status?: number })?.status;
-    if (status === 529 || status === 503 || /overload/i.test(String((e as Error)?.message))) return NextResponse.json({ error: "L'IA est très sollicitée. Réessaie dans quelques secondes 🙂" }, { status: 503 });
+    if (isClaudeOverloaded(e)) return NextResponse.json({ error: "L'IA est très sollicitée. Réessaie dans quelques secondes 🙂" }, { status: 503 });
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 }

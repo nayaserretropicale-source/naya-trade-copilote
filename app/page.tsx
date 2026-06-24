@@ -24,7 +24,6 @@ const BADGE: Record<string, string> = {
   warn: "text-[#D8B26A] bg-[#241E10] border-[#3A301A]",
   bad: "text-[#E8705D] bg-[#251512] border-[#3E221C]",
 };
-const TIER_BADGE: Record<string, string> = { "Prudent": BADGE.ok, "Équilibré": BADGE.warn, "Dynamique": BADGE.bad };
 const RISK_BADGE: Record<string, string> = { faible: BADGE.ok, modere: BADGE.warn, eleve: BADGE.bad };
 const dotColor = (t: string) => (t === "Prudent" ? "#7FB894" : t === "Équilibré" ? "#D8B26A" : "#E8705D");
 const ALLOC_COLORS = ["#36C27D", "#D8B26A", "#7FB894", "#E8705D", "#6FA8DC", "#A78BFA", "#E0A1C8"];
@@ -104,7 +103,9 @@ function AuthScreen() {
 }
 
 function Dashboard({ token }: { token: string }) {
-  const authedFetch = (path: string, options: RequestInit = {}) => fetch(path, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` } });
+  const tokenRef = useRef(token);
+  useEffect(() => { tokenRef.current = token; }, [token]);
+  const authedFetch = (path: string, options: RequestInit = {}) => fetch(path, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${tokenRef.current}` } });
 
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -163,7 +164,7 @@ function Dashboard({ token }: { token: string }) {
 
   useEffect(() => {
     (async () => {
-      try { await loadPortfolio(); await loadPositions(); await loadReport(); await loadMarket(); await loadSuggestions(); await loadHistory(); await loadSnapshots(); await loadWeekly(); setLastUpdated(new Date()); }
+      try { await Promise.all([loadPortfolio(), loadPositions(), loadReport(), loadMarket(), loadSuggestions(), loadHistory(), loadSnapshots(), loadWeekly()]); setLastUpdated(new Date()); }
       catch (e) { setError(e instanceof Error ? e.message : "Erreur"); } finally { setLoading(false); }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -237,7 +238,13 @@ function Dashboard({ token }: { token: string }) {
 
   async function handleBuy() {
     setBuying(true); setMsgBuy(null);
-    try { const res = await authedFetch("/api/trade", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol, amountXof: Number(amount), reason: buyReason.trim() || undefined }) }); const data = await res.json(); if (data.error) throw new Error(data.error); setMsgBuy({ type: "ok", text: `Acheté ${data.quantity.toFixed(4)} ${data.symbol} à ${data.price.toFixed(2)} $ · liquidités : ${fcfa(data.newCash)}` }); setBuyReason(""); await reloadAll(); }
+    try {
+      const res = await authedFetch("/api/trade", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ symbol, amountXof: Number(amount), reason: buyReason.trim() || undefined }) });
+      const data = await res.json(); if (data.error) throw new Error(data.error);
+      const cappedNote = data.capped ? ` · montant réduit au plafond de ${fcfa(data.cappedAtUsd)} (au lieu de ${fcfa(data.requestedUsd)})` : "";
+      setMsgBuy({ type: "ok", text: `Acheté ${data.quantity.toFixed(4)} ${data.symbol} à ${data.price.toFixed(2)} $ · liquidités : ${fcfa(data.newCash)}${cappedNote}` });
+      setBuyReason(""); await reloadAll();
+    }
     catch (e) { setMsgBuy({ type: "err", text: e instanceof Error ? e.message : "Erreur" }); } finally { setBuying(false); }
   }
   async function doSell(sym: string, fraction: number) {
@@ -382,7 +389,7 @@ function Dashboard({ token }: { token: string }) {
                     </div>
                   )}
 
-                  {positions.length === 0 ? (<p className="text-sm text-[#8C968B]">Aucune position. Va dans l'onglet Marché pour acheter (en simulation).</p>) : (
+                  {positions.length === 0 ? (<p className="text-sm text-[#8C968B]">Aucune position. Va dans l&apos;onglet Marché pour acheter (en simulation).</p>) : (
                     <div className="space-y-3">
                       {sortedPositions.map((p) => {
                         const weight = totalValue > 0 ? (p.currentValueUsd / totalValue) * 100 : 0;
@@ -486,8 +493,8 @@ function Dashboard({ token }: { token: string }) {
             {tab === "ia" && (
               <>
                 <div className={card}>
-                  <p className={`${lbl} mb-3`}>Suggestions de l'IA</p>
-                  {suggestions.length === 0 ? (<p className="text-sm text-[#8C968B]">Aucune suggestion en attente. Demande à l'IA d'analyser ta situation.</p>) : (
+                  <p className={`${lbl} mb-3`}>Suggestions de l&apos;IA</p>
+                  {suggestions.length === 0 ? (<p className="text-sm text-[#8C968B]">Aucune suggestion en attente. Demande à l&apos;IA d&apos;analyser ta situation.</p>) : (
                     <div className="space-y-3">{suggestions.map((s) => (
                       <div key={s.id} className="border border-[#243029] rounded-2xl p-3">
                         <div className="flex items-center justify-between"><p className="font-semibold text-sm">{s.name || s.symbol} <span className="text-xs text-[#69736A]">({s.symbol})</span></p><span className={`text-xs font-semibold px-2 py-1 rounded-full border ${sugBadge(s.action)}`}>{sugLabel(s.action)}</span></div>
@@ -519,7 +526,7 @@ function Dashboard({ token }: { token: string }) {
               <div className={card}>
                 <p className={`${lbl} mb-2`}>Journal &amp; gains</p>
                 <div className="rounded-2xl bg-[#111814] border border-[#243029] p-3 mb-3">
-                  <p className="text-xs text-[#69736A]">Aujourd'hui</p>
+                  <p className="text-xs text-[#69736A]">Aujourd&apos;hui</p>
                   <p className={`text-lg font-semibold tabular-nums ${!todayDay || todayDay.sells === 0 ? "text-[#8C968B]" : todayDay.realizedPl >= 0 ? "text-[#36C27D]" : "text-[#E8705D]"}`}>{!todayDay || todayDay.sells === 0 ? "Aucune vente aujourd'hui" : `${todayDay.realizedPl >= 0 ? "▲" : "▼"} ${signFcfa(todayDay.realizedPl)}`}</p>
                   {todayDay && <p className="text-xs text-[#69736A] mt-0.5">{todayDay.buys} achat(s) · {todayDay.sells} vente(s)</p>}
                 </div>

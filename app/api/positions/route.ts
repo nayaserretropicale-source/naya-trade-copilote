@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getUserPortfolio, unauthorized } from "@/lib/auth";
+import { fetchWithTimeout } from "@/lib/fetchWithTimeout";
 
 type Quote = { price: number; prevClose: number | null; stale: boolean; fetchedAt: string | null };
 
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
   const results = await Promise.all(
     symbols.map(async (symbol) => {
       try {
-        const q = await fetch(
+        const q = await fetchWithTimeout(
           `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${token}`,
           { cache: "no-store" }
         );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { supabaseBrowser } from "@/lib/supabaseBrowser";
 
 function IconHome() { return (<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 11l9-7 9 7M5 10v10h5v-6h4v6h5V10" /></svg>); }
@@ -33,12 +34,17 @@ export default function TelegramPage() {
     try { const res = await fetch("/api/telegram/link", { headers: { Authorization: `Bearer ${token}` } }); const data = await res.json(); if (data.error) throw new Error(data.error); setConnected(!!data.connected); setBotUrl(data.botUrl || ""); }
     catch (e) { setErr(e instanceof Error ? e.message : "Erreur"); } finally { setLoading(false); }
   }
-  useEffect(() => { if (token) load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [token]);
+  useEffect(() => {
+    if (!token) return;
+    const id = setTimeout(() => load(), 0);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   async function disconnect() { if (!token) return; await fetch("/api/telegram/link", { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }); await load(); }
 
   if (!ready) return <main className="min-h-screen bg-[#0C120E] flex items-center justify-center"><p className="text-[#69736A]">Chargement…</p></main>;
-  if (!token) return <main className="min-h-screen bg-[#0C120E] flex items-center justify-center p-6"><div className="text-center"><p className="text-[#8C968B] mb-3">Connecte-toi d'abord.</p><a href="/" className="text-[#36C27D] font-semibold underline">Aller à la connexion</a></div></main>;
+  if (!token) return <main className="min-h-screen bg-[#0C120E] flex items-center justify-center p-6"><div className="text-center"><p className="text-[#8C968B] mb-3">Connecte-toi d&apos;abord.</p><Link href="/" className="text-[#36C27D] font-semibold underline">Aller à la connexion</Link></div></main>;
 
   return (
     <main className="min-h-screen bg-[#0C120E] text-[#ECF0EA] flex justify-center px-4 pt-6 pb-28">
@@ -60,10 +66,10 @@ export default function TelegramPage() {
               <ol className="text-sm text-[#C2CABF] list-decimal pl-5 space-y-1">
                 <li>Clique le bouton ci-dessous (ça ouvre le bot Naya).</li>
                 <li>Appuie sur <b>Démarrer</b> dans Telegram.</li>
-                <li>Reviens ici et clique <b>« J'ai connecté »</b>.</li>
+                <li>Reviens ici et clique <b>« J&apos;ai connecté »</b>.</li>
               </ol>
               <a href={botUrl} target="_blank" rel="noopener noreferrer" className="block w-full text-center py-3 rounded-2xl bg-[#36C27D] text-[#06140C] font-semibold active:scale-[0.99] transition">Connecter mon Telegram</a>
-              <button onClick={load} className="w-full py-3 rounded-2xl bg-[#18211B] border border-[#243029] font-semibold active:scale-[0.99] transition">J'ai connecté — vérifier</button>
+              <button onClick={load} className="w-full py-3 rounded-2xl bg-[#18211B] border border-[#243029] font-semibold active:scale-[0.99] transition">J&apos;ai connecté — vérifier</button>
             </>
           )}
         </div>

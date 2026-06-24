@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getUserPortfolio, unauthorized } from "@/lib/auth";
+import { replayCostBasis } from "@/lib/costBasis";
 
 type Tx = { symbol: string; side: string; quantity: number; price: number; total: number; created_at: string };
 
@@ -11,24 +12,12 @@ export async function GET(req: NextRequest) {
 
   const { data: txs } = await supabaseAdmin.from("transactions").select("*").eq("portfolio_id", portfolio.id).order("created_at", { ascending: true });
 
-  const cost: Record<string, { qty: number; avg: number }> = {};
-  const ops: Array<{ date: string; symbol: string; side: string; quantity: number; price: number; total: number; realizedPl: number | null }> = [];
+  const events = replayCostBasis((txs ?? []) as Tx[]);
   let totalRealizedPl = 0;
-
-  for (const tx of (txs ?? []) as Tx[]) {
-    let realizedPl: number | null = null;
-    const c = cost[tx.symbol] || { qty: 0, avg: 0 };
-    if (tx.side === "buy") {
-      const newQty = c.qty + tx.quantity;
-      cost[tx.symbol] = { qty: newQty, avg: newQty > 0 ? (c.qty * c.avg + tx.quantity * tx.price) / newQty : tx.price };
-    } else {
-      const avg = c.qty > 0 ? c.avg : tx.price;
-      realizedPl = (tx.price - avg) * tx.quantity;
-      totalRealizedPl += realizedPl;
-      cost[tx.symbol] = { qty: c.qty - tx.quantity, avg };
-    }
-    ops.push({ date: tx.created_at, symbol: tx.symbol, side: tx.side, quantity: tx.quantity, price: tx.price, total: tx.total, realizedPl });
-  }
+  const ops = events.map(({ tx, realizedPl }) => {
+    if (realizedPl !== null) totalRealizedPl += realizedPl;
+    return { date: tx.created_at, symbol: tx.symbol, side: tx.side, quantity: tx.quantity, price: tx.price, total: tx.total, realizedPl };
+  });
 
   const dayMap: Record<string, { realizedPl: number; buys: number; sells: number }> = {};
   for (const o of ops) {

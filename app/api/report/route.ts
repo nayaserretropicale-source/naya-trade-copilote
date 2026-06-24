@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { generateReport } from "@/lib/generateReport";
 import { sendTelegramTo, formatReport } from "@/lib/sendTelegram";
 import { getUserPortfolio, unauthorized } from "@/lib/auth";
+import { isClaudeOverloaded } from "@/lib/anthropicRetry";
 
 export const maxDuration = 60;
 
@@ -23,9 +24,7 @@ export async function POST(req: NextRequest) {
     if (chatId) { try { await sendTelegramTo(chatId, formatReport(report)); } catch {} }
     return NextResponse.json({ ok: true, report });
   } catch (e) {
-    const status = (e as { status?: number })?.status;
-    const overloaded = status === 529 || status === 503 || /overload/i.test(String((e as Error)?.message));
-    if (overloaded) return NextResponse.json({ error: "L'IA est très sollicitée. Réessaie dans quelques secondes 🙂" }, { status: 503 });
+    if (isClaudeOverloaded(e)) return NextResponse.json({ error: "L'IA est très sollicitée. Réessaie dans quelques secondes 🙂" }, { status: 503 });
     return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
   }
 }
